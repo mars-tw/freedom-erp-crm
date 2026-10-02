@@ -26,7 +26,8 @@ async function main(){
  }
  if(options.help){console.log(help);return;}
  if(Number(process.versions.node.split('.')[0])<24)throw Error('需要 Node.js 24 或更新版本。');
- const {templates,moduleDependencies}=await import('../src/templates.ts');
+ const catalog=JSON.parse(await readFile(join(packageRoot,'templates','catalog.json'),'utf8'));
+ const {templates,moduleDependencies}=catalog;
  const industry=options.industry??'retail';const template=templates.find(t=>t.id===industry);
  if(!template)throw Error('無效產業。'+help);
  const company=String(options.name??'我的模擬企業').trim();

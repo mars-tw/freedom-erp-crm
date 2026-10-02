@@ -27,7 +27,7 @@
   "scripts": {
     "dev": "wrangler dev --port 8788",
     "start": "node bin/freedom-erp.mjs",
-    "build": "vite build --config web/vite.config.ts && node scripts/copy-notices.mjs",
+    "build": "node scripts/export-templates.mjs && vite build --config web/vite.config.ts && node scripts/copy-notices.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.mjs",
     "test:e2e": "playwright test",

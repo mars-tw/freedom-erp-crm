@@ -1,0 +1,388 @@
+{
+  "format": "freedom-template-catalog-v1",
+  "templates": [
+    {
+      "id": "retail",
+      "name": "零售商店",
+      "purpose": "練習店內銷售、庫存預留與退貨",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "crm"
+      ],
+      "terminology": {
+        "customer": "顧客",
+        "product": "零售商品",
+        "work_order": "製作單"
+      },
+      "sample": {
+        "sku": "SHOP-MUG-001",
+        "product": "示範陶瓷杯",
+        "customer": "社區顧客林小姐",
+        "service": "商品客製服務",
+        "component": "杯體材料",
+        "price_minor": 35000,
+        "cost_minor": 16000
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "wholesale",
+      "name": "批發商",
+      "purpose": "練習箱裝進貨、批發客戶與出貨追蹤",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "crm"
+      ],
+      "terminology": {
+        "customer": "經銷客戶",
+        "product": "箱裝商品",
+        "work_order": "製作單"
+      },
+      "sample": {
+        "sku": "WHOLE-BOX-001",
+        "product": "示範清潔用品箱（12瓶）",
+        "customer": "示範經銷商",
+        "service": "經銷合作",
+        "component": "示範包裝材料",
+        "price_minor": 240000,
+        "cost_minor": 150000
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "service",
+      "name": "服務工作室",
+      "purpose": "練習客戶、報價、交付、驗收與測試幣付款",
+      "modules": [
+        "services",
+        "wallets",
+        "crm",
+        "projects"
+      ],
+      "terminology": {
+        "customer": "委託客戶",
+        "product": "參考商品",
+        "work_order": "工作單"
+      },
+      "sample": {
+        "sku": "SERVICE-REF-001",
+        "product": "服務參考方案",
+        "customer": "品牌委託客戶",
+        "service": "網站視覺設計",
+        "component": "參考素材",
+        "price_minor": 3000000,
+        "cost_minor": 0
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "restaurant",
+      "name": "餐飲店",
+      "purpose": "以配方BOM練習食材預留、餐點製作與模擬銷售；不含食安管理",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "crm",
+        "manufacturing"
+      ],
+      "terminology": {
+        "customer": "用餐顧客",
+        "product": "餐點",
+        "work_order": "餐點製作單"
+      },
+      "sample": {
+        "sku": "MENU-TEA-001",
+        "product": "示範冷泡茶",
+        "customer": "常客陳先生",
+        "service": "活動餐飲服務",
+        "component": "茶包（份）",
+        "price_minor": 8000,
+        "cost_minor": 2500,
+        "bom_quantity": 1
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "manufacturing",
+      "name": "製造工廠",
+      "purpose": "練習版本化BOM、原料FIFO、開工及完工成本轉移",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "crm",
+        "manufacturing"
+      ],
+      "terminology": {
+        "customer": "採購客戶",
+        "product": "成品",
+        "work_order": "生產工單"
+      },
+      "sample": {
+        "sku": "FG-BRACKET-001",
+        "product": "示範金屬支架",
+        "customer": "設備採購公司",
+        "service": "工程打樣",
+        "component": "鋼料片（件）",
+        "price_minor": 120000,
+        "cost_minor": 60000,
+        "bom_quantity": 2
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "ecommerce",
+      "name": "電商",
+      "purpose": "練習品牌商品、顧客、模擬付款與分批出貨；沒有物流串接",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "crm"
+      ],
+      "terminology": {
+        "customer": "網店顧客",
+        "product": "品牌商品",
+        "work_order": "製作單"
+      },
+      "sample": {
+        "sku": "WEB-TOTE-001",
+        "product": "示範品牌帆布袋",
+        "customer": "網店顧客王小姐",
+        "service": "品牌售後服務",
+        "component": "包材",
+        "price_minor": 49000,
+        "cost_minor": 22000
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "projects",
+      "name": "專案公司",
+      "purpose": "練習案件、待辦、里程碑與交付；不含工時薪資",
+      "modules": [
+        "services",
+        "wallets",
+        "crm",
+        "projects"
+      ],
+      "terminology": {
+        "customer": "專案客戶",
+        "product": "參考方案",
+        "work_order": "任務"
+      },
+      "sample": {
+        "sku": "PROJECT-REF-001",
+        "product": "系統建置參考方案",
+        "customer": "企業專案委託方",
+        "service": "內部系統原型建置",
+        "component": "參考元件",
+        "price_minor": 10000000,
+        "cost_minor": 0,
+        "milestone": "原型驗收",
+        "task": "確認需求與交付範圍"
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    },
+    {
+      "id": "general",
+      "name": "一般企業",
+      "purpose": "探索已實作模組，作為自訂範本起點",
+      "modules": [
+        "inventory",
+        "sales",
+        "wallets",
+        "services",
+        "crm",
+        "projects",
+        "manufacturing"
+      ],
+      "terminology": {
+        "customer": "客戶",
+        "product": "商品",
+        "work_order": "製作單"
+      },
+      "sample": {
+        "sku": "DEMO-001",
+        "product": "示範成品",
+        "customer": "示範企業客戶",
+        "service": "示範顧問服務",
+        "component": "示範材料",
+        "price_minor": 10000,
+        "cost_minor": 5000
+      },
+      "version": 1,
+      "module_dependencies": {
+        "sales": [
+          "inventory",
+          "wallets"
+        ],
+        "services": [
+          "crm",
+          "wallets"
+        ],
+        "manufacturing": [
+          "inventory",
+          "wallets"
+        ]
+      },
+      "default_config": {
+        "currency": "SIM",
+        "simulation": true,
+        "real_finance": false
+      }
+    }
+  ],
+  "moduleDependencies": {
+    "sales": [
+      "inventory",
+      "wallets"
+    ],
+    "services": [
+      "crm",
+      "wallets"
+    ],
+    "manufacturing": [
+      "inventory",
+      "wallets"
+    ]
+  }
+}
