@@ -17,7 +17,7 @@ export function apply(w:WorldData,action:string,p:any,source?:any):string {
  if(action==='order.create'){
   const buyer=find(w.wallets,p.buyer_wallet_id);ok(buyer.kind==='buyer',422,'simulation_buyer_required','請選擇模擬買家錢包。');const seen=new Set();
   const lines=p.lines.map((x:any)=>{ok(!seen.has(x.product_id),422,'simulation_duplicate_line','商品不可重複。');seen.add(x.product_id);const v=find(w.products,x.product_id);ok(v.active,409,'simulation_product_inactive','商品已停用。');ok(v.on_hand-v.reserved>=x.quantity,409,'simulation_out_of_stock','模擬庫存不足。');v.reserved+=x.quantity;return {id:randomUUID(),product_id:v.id,name:v.name,price_minor:v.price_minor,cost_minor:v.cost_minor,quantity:x.quantity,shipped_quantity:0,returned_quantity:0,shipped_cost_lots:[]};});
-  const order={id:randomUUID(),buyer_wallet_id:buyer.id,status:'pending',total_minor:safe(lines.reduce((s:number,l:any)=>s+safe(l.price_minor*l.quantity),0)),paid_minor:0,refunded_minor:0,lines};w.orders.push(order);return order.id;
+  const order={id:randomUUID(),...(p.learning_run_id?{learning_run_id:p.learning_run_id}:{}),buyer_wallet_id:buyer.id,status:'pending',total_minor:safe(lines.reduce((s:number,l:any)=>s+safe(l.price_minor*l.quantity),0)),paid_minor:0,refunded_minor:0,lines};w.orders.push(order);return order.id;
  }
  if(action.startsWith('order.')){
   const order=find(w.orders,p.id),buyer=find(w.wallets,order.buyer_wallet_id);ok(order.status!=='cancelled',409,'simulation_order_cancelled','訂單已取消。');
