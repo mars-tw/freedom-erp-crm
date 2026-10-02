@@ -4,6 +4,7 @@ import {createWorld,command,validateWorld} from '../src/engine';
 import type {Workspace} from '../web/api';
 import {createLearningSession,evaluateLearning,prepareLearningCommand} from '../web/learning';
 import {acknowledgeLearningOperation,acknowledgeRecoveredLearning,readActiveLearningSession,readLearningSession,rememberLearningOperation,writeLearningSession} from '../web/learning-storage';
+import {learningFacts,readLearningView} from '../web/learning-view';
 
 function storage(){const values=new Map<string,string>();Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)}});return values;}
 function scenario(){const w=createWorld('general','教學收據測試') as Workspace;const session=createLearningSession(w,'sales');const next=prepareLearningCommand(w,session,'customer');assert.ok('action' in next);writeLearningSession(session);rememberLearningOperation(session,'customer',next,w.version);const applied=command(w,next.action,next.payload);return {w,session,next,applied};}
@@ -34,4 +35,19 @@ test('learning metadata rejects malformed commands and forged imported metadata'
  storage();const w=createWorld('manufacturing','工單識別測試');assert.throws(()=>command(w,'workOrder.create',{bom_id:w.boms[0].id,quantity:1,learning_run_id:'invalid space'}));
  assert.throws(()=>command(w,'customer.create',{name:'不可加識別',learning_run_id:'valid-run-id'}));
  const tagged=command(w,'workOrder.create',{bom_id:w.boms[0].id,quantity:1,learning_run_id:'valid-run-id'}).workspace;tagged.workOrders[0].learning_run_id={unexpected:'object'};assert.throws(()=>validateWorld(tagged));
+});
+test('lost-response recovery retains the original before values with its acknowledged snapshot',()=>{
+ storage();const {w,session,next,applied}=scenario();rememberLearningOperation(session,'customer',next,w.version,learningFacts(w,session));
+ acknowledgeRecoveredLearning({key:'same-snapshot',path:'/api/workspace/commands',body:JSON.stringify({action:next.action,payload:next.payload}),version:w.version},applied.result,applied.workspace,applied.workspace.version);
+ const resumed=readLearningSession(applied.workspace,'sales')!;const snapshot=readLearningView(applied.workspace,resumed).snapshots.customer;assert.ok(snapshot);assert.equal(snapshot.result,applied.result);assert.deepEqual(snapshot.rows.find(row=>row.label==='本輪顧客'),{label:'本輪顧客',before:'0 位',after:'1 位'});
+});
+test('receipt replay after a later write preserves progress without inventing historical after values',()=>{
+ storage();const {w,session,next,applied}=scenario();rememberLearningOperation(session,'customer',next,w.version,learningFacts(w,session));const later=command(applied.workspace,'customer.create',{name:'後來新增'});
+ acknowledgeLearningOperation({...next,version:w.version},applied.result,later.workspace,applied.workspace.version);const resumed=readLearningSession(later.workspace,'sales')!;assert.equal(evaluateLearning(later.workspace,resumed).nextIndex,1);assert.equal(readLearningView(later.workspace,resumed).snapshots.customer,undefined);
+});
+test('quota-failed browser writes retain the latest checkpoint while previous storage stays readable',()=>{
+ const values=storage();const {session,next,applied}=scenario();Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>values.get(key)??null,setItem(){throw Error('quota reached');},removeItem(){throw Error('storage locked');}}});
+ acknowledgeLearningOperation({...next,version:0},applied.result,applied.workspace);const first=readLearningSession(applied.workspace,'sales')!;assert.equal(first.checkpoints.length,1);
+ const buyer=prepareLearningCommand(applied.workspace,first,'buyer');assert.ok('action' in buyer);rememberLearningOperation(first,'buyer',buyer,applied.workspace.version);const second=command(applied.workspace,buyer.action,buyer.payload);acknowledgeLearningOperation({...buyer,version:applied.workspace.version},second.result,second.workspace);
+ const resumed=readLearningSession(second.workspace,'sales')!;assert.equal(resumed.runId,session.runId);assert.equal(resumed.checkpoints.length,2);assert.equal(evaluateLearning(second.workspace,resumed).nextIndex,2);assert.equal(JSON.parse(values.get(`freedom-erp.learning.v1.${session.generation}.sales`)!).checkpoints.length,0);
 });

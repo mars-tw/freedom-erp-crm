@@ -11,9 +11,12 @@ npm ci
 npm run build
 npx wrangler login
 npx wrangler deploy
+npm run verify:public -- https://你的公開網址/
 ```
 
 不需要把 token 寫入專案或公開 CI。請用 SQLite Durable Objects；本專案使用 Workers Free 相容的儲存方式，但仍須遵守帳號配額。[Cloudflare 定價與配額](https://developers.cloudflare.com/durable-objects/platform/pricing/)
+
+部署後的檢查會等待最多 60 秒，核對公開 HTML 引用的 JS／CSS 版本，以及實際檔案內容的 SHA-256。尚在傳播的舊版本不會被算成新版成功；逾時請保留輸出、稍後重查。接著以 `TEST_URL` 指向公開站執行瀏覽器測試，並設定 `EXPECTED_PUBLIC_ASSET` 為本次 `dist/assets/` 的 JS 檔名。
 
 本次 mars-tw 公開測試站的網址及部署結果記於[驗收紀錄](verification.md)。自由工坊正式入口以另一個 PR 提出；公開試用站不讀取自由工坊會員或正式資料庫。
 

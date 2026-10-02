@@ -10,6 +10,7 @@ import {
   type LearningSession,
 } from './learning';
 import {readActiveLearningSession, readLearningSession, rememberLearningOperation, writeLearningSession} from './learning-storage';
+import {learningFacts, readLearningView, writeLearningView, type LearningViewState} from './learning-view';
 import './learning.css';
 
 export interface LearningStudioProps {
@@ -43,44 +44,6 @@ const nodeNames: Record<string, string> = {
   bom: '物料清單', production: '製造工單', case: '客戶案件', quote: '報價版本',
   service: '服務確認', delivery: '交付與驗收',
 };
-const money = (value: number) => `${new Intl.NumberFormat('zh-TW', {maximumFractionDigits: 2}).format(value / 100)} SIM`;
-const sum = (items: RecordData[], field: string) => items.reduce((value, item) => value + Number(item[field] || 0), 0);
-
-function facts(workspace: Workspace, path: LearningPathId): {label: string;value: string}[] {
-  const wallets = workspace.wallets || [];
-  const products = workspace.products || [];
-  const common = [
-    {label: '商家測試幣', value: money(sum(wallets.filter(wallet => wallet.kind === 'business'), 'balance_minor'))},
-    {label: '買家測試幣', value: money(sum(wallets.filter(wallet => wallet.kind === 'buyer'), 'balance_minor'))},
-  ];
-  if (path === 'service') return [
-    {label: '客戶案件', value: `${workspace.cases.length} 件`},
-    {label: '報價版本', value: `${workspace.quotes.length} 份`},
-    {label: '服務交付版本', value: `${workspace.services.reduce((n, service) => n + (service.deliveries?.length || 0), 0)} 份`},
-    {label: '已驗收服務', value: `${workspace.services.filter(service => service.status === 'accepted').length} 件`},
-    {label: '服務測試幣收款', value: money(sum(workspace.services, 'paid_minor'))}, ...common,
-  ];
-  if (path === 'manufacturing') {
-    const bom=workspace.boms.find(item=>item.components?.length===1&&products.some(product=>product.id===item.product_id&&product.active)&&products.some(product=>product.id===item.components[0].product_id&&product.active));
-    const material=products.find(product=>product.id===bom?.components?.[0]?.product_id);
-    const finished=products.find(product=>product.id===bom?.product_id);
-    return [
-    {label: `材料現有量${material?' · '+material.name:''}`, value: `${material?.on_hand??0} 件`},
-    {label: `成品現有量${finished?' · '+finished.name:''}`, value: `${finished?.on_hand??0} 件`},
-    {label: '保留庫存', value: `${sum(products, 'reserved')} 件`},
-    {label: '庫存成本', value: money(sum(products, 'stock_value_minor'))},
-    {label: 'BOM 版本', value: `${workspace.boms.length} 份`},
-    {label: '已完工工單', value: `${workspace.workOrders.filter(order => order.status === 'completed').length} 張`}, ...common,
-  ];}
-  return [
-    {label: '商品現有量', value: `${sum(products, 'on_hand')} 件`},
-    {label: '保留庫存', value: `${sum(products, 'reserved')} 件`},
-    {label: '訂單', value: `${workspace.orders.length} 筆`},
-    {label: '訂單測試幣已付', value: money(sum(workspace.orders, 'paid_minor'))},
-    {label: '已出貨', value: `${workspace.orders.reduce((n, order) => n + sum(order.lines || [], 'shipped_quantity'), 0)} 件`}, ...common,
-  ];
-}
-
 const checks: Record<LearningPathId, {question: string;choices: string[];answer: number;explanation: string}> = {
   sales: {
     question: '建立訂單後，保留庫存代表什麼？',
@@ -120,16 +83,44 @@ function readPaused(generation: string) {
 export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}: LearningStudioProps) {
   const paths = useMemo(() => availablePaths(workspace), [workspace]);
   const [session, setSession] = useState<LearningSession | null>(() => getInitial(workspace));
-  const [selectedStep, setSelectedStep] = useState<string | null>(null);
+  const [viewState, setViewState] = useState<LearningViewState>(() => session ? readLearningView(workspace, session) : {selectedStep: null, choice: null, scope: 'lesson', compact: false, snapshots: {}});
+  const viewRef = useRef(viewState);
+  const selectedStep = viewState.selectedStep;
+  const choice = viewState.choice;
   const [paused, setPaused] = useState(() => readPaused(workspace.generation_id));
   const [reducedMotion, setReducedMotion] = useState(false);
-  const [choice, setChoice] = useState<number | null>(null);
   const [notice, setNotice] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
-  const [change, setChange] = useState<{stepId: string;rows: {label: string;before: string;after: string}[]} | null>(null);
   const sceneHeading = useRef<HTMLHeadingElement>(null);
   const version = workspace.version;
   const generation = workspace.generation_id;
+
+  function updateView(patch: Partial<LearningViewState>, updatedWorkspace = workspace, updatedSession = session) {
+    if (!updatedSession) return;
+    const next = {...viewRef.current, ...patch};
+    viewRef.current = next;
+    setViewState(next);
+    writeLearningView(updatedWorkspace, updatedSession, next);
+  }
+
+  function restoreView(updatedSession: LearningSession) {
+    const next = readLearningView(workspace, updatedSession);
+    viewRef.current = next;
+    setViewState(next);
+  }
+
+  function focusScene() {
+    window.requestAnimationFrame(() => {
+      sceneHeading.current?.focus({preventScroll: true});
+      sceneHeading.current?.scrollIntoView({behavior: reducedMotion ? 'auto' : 'smooth', block: 'start'});
+    });
+  }
+
+  useEffect(() => {
+    if (!session || session.generation !== generation) return;
+    writeLearningSession(session);
+    restoreView(session);
+  }, [session?.generation, session?.path, session?.runId]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
@@ -150,14 +141,15 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
   useEffect(() => {
     setSession(previous => {
       if (!previous || previous.generation !== generation || !paths.some(path => path.id === previous.path)) {
-        setSelectedStep(null);
-        setChange(null);
-        setChoice(null);
         return getInitial(workspace);
       }
       return readLearningSession(workspace, previous.path) || previous;
     });
   }, [generation, version, pending]);
+
+  useEffect(() => {
+    if(session&&!pending&&!localBusy)restoreView(session);
+  }, [pending,localBusy,session?.checkpoints.length]);
 
   const evaluation = session ? evaluateLearning(workspace, session) : null;
   const activePath = evaluation?.path;
@@ -174,16 +166,15 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
   const pathId = activePath?.id || 'sales';
   const copy = routeCopy[pathId];
   const quiz = checks[pathId];
-  const currentFacts = facts(workspace, pathId);
+  const currentFacts = session ? learningFacts(workspace, session, viewState.scope) : [];
+  const change = current && session?.generation === generation ? viewState.snapshots[current.step.id] : undefined;
 
   function selectPath(id: LearningPathId) {
     if (busy || localBusy || pending) return;
     const next = readLearningSession(workspace, id) || createLearningSession(workspace, id);
     setSession(next);
     writeLearningSession(next);
-    setSelectedStep(null);
-    setChange(null);
-    setChoice(null);
+    restoreView(next);
     setNotice('已切換教學路線，尚未執行任何操作。');
   }
 
@@ -192,9 +183,7 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
     const next = createLearningSession(workspace, session.path);
     writeLearningSession(next);
     setSession(next);
-    setSelectedStep(null);
-    setChange(null);
-    setChoice(null);
+    restoreView(next);
     setNotice('已另開一輪練習。現有工作區資料保留，新的實作仍需要逐步按下執行。');
   }
 
@@ -202,8 +191,8 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
     if (!session || !current || !command || 'blocked' in command || !canExecute) return;
     setLocalBusy(true);
     setNotice('正在執行這一步，等待工作區確認結果…');
-    const before = facts(workspace, session.path);
-    rememberLearningOperation(session, current.step.id, command, workspace.version);
+    const before = learningFacts(workspace, session, 'lesson');
+    rememberLearningOperation(session, current.step.id, command, workspace.version, before);
     try {
       const result = await onCommand(command.action, command.payload);
       if (!result) {
@@ -213,9 +202,9 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
       const updated = captureLearningCheckpoint(session, current.step.id, command, result.result, result.workspace);
       writeLearningSession(updated);
       setSession(updated);
-      const after = facts(result.workspace, session.path);
-      setChange({stepId: current.step.id, rows: after.map((row, index) => ({label: row.label, before: before[index]?.value || '—', after: row.value}))});
-      setSelectedStep(current.step.id);
+      const after = learningFacts(result.workspace, updated, 'lesson');
+      const snapshot = {version: updated.checkpoints.at(-1)!.version, result: result.result, rows: after.map(row => ({label: row.label, before: before.find(previous => previous.label.split(' ·')[0] === row.label.split(' ·')[0])?.value || '—', after: row.value}))};
+      updateView({selectedStep: current.step.id, snapshots: {...viewRef.current.snapshots, [current.step.id]: snapshot}}, result.workspace, updated);
       setNotice('操作已確認。下方顯示實際紀錄與前後變化，閱讀內容不會新增完成證據。');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '這一步尚未完成，請核對工作區提示。');
@@ -226,15 +215,16 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
 
   function selectStep(id: string) {
     if(busy||localBusy)return;
-    setSelectedStep(id);
+    updateView({selectedStep: id});
     setNotice('已開啟章節閱讀，工作區資料沒有改變。');
+    focusScene();
   }
 
   function goNext() {
     if (!evaluation||busy||localBusy) return;
     const index = Math.min(evaluation.nextIndex, evaluation.steps.length - 1);
-    setSelectedStep(evaluation.steps[index].step.id);
-    sceneHeading.current?.focus();
+    updateView({selectedStep: evaluation.steps[index].step.id});
+    focusScene();
   }
 
   if (!activePath || !session || !current) return (
@@ -251,23 +241,21 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
     : pathId === 'service' ? ['case', 'quote', 'service', 'delivery', 'wallet']
     : ['inventory', 'bom', 'production', 'inventory'];
   const nodeFact = (node: string, index: number): string => {
-    if (node === 'wallet') return `${money(sum(workspace.wallets.filter(item => item.kind === (pathId === 'sales' ? 'buyer' : 'business')), 'balance_minor'))}`;
-    if (node === 'inventory') return index === nodes.length - 1 && pathId === 'manufacturing'
-      ? `${workspace.workOrders.filter(item => item.status === 'completed').length} 張已完工`
-      : `${sum(workspace.products, 'on_hand')} 件現有 · ${sum(workspace.products, 'reserved')} 件保留`;
-    if (node === 'order') return `${workspace.orders.length} 筆工作區訂單`;
-    if (node === 'case') return `${workspace.cases.length} 件工作區案件`;
-    if (node === 'quote') return `${workspace.quotes.length} 份報價版本`;
-    if (node === 'service') return `${workspace.services.length} 件工作區服務`;
-    if (node === 'delivery') return `${workspace.services.reduce((n, item) => n + (item.deliveries?.length || 0), 0)} 份交付版本`;
-    if (node === 'bom') return `${workspace.boms.length} 份 BOM 版本`;
-    return `${workspace.workOrders.length} 張工作區工單`;
+    const wanted = node === 'wallet' ? (pathId === 'sales' ? '買家測試幣' : '商家測試幣')
+      : node === 'inventory' ? (index === nodes.length - 1 ? pathId === 'manufacturing' ? '成品現有量' : '已出貨' : pathId === 'manufacturing' ? '材料現有量' : '商品現有量')
+      : node === 'order' ? '訂單' : node === 'case' ? '案件' : node === 'quote' ? '報價'
+      : node === 'service' ? '已驗收服務' : node === 'delivery' ? '交付版本' : node === 'bom' ? 'BOM 版本' : '工單';
+    const fact = currentFacts.find(row => row.label.split(' ·')[0].endsWith(wanted))
+      || (node === 'inventory' && viewState.scope === 'workspace' ? currentFacts.find(row => row.label.includes('庫存現有量')) : undefined);
+    if (fact) return `${fact.label} ${fact.value}`;
+    if (node === 'bom') return '沿用範本 BOM，版本由工單凍結';
+    return '本輪尚無對應紀錄';
   };
   const nodeIsCurrent = (node: string, index: number) => current.step.node === node && (node !== 'inventory'
     || (['ship', 'complete'].includes(current.step.id) ? index === nodes.length - 1 : index === nodes.indexOf('inventory')));
 
   return (
-    <section className={`learning-studio ${paused || reducedMotion ? 'learning-still' : ''}`} data-testid="learning-studio">
+    <section className={`learning-studio ${paused || reducedMotion ? 'learning-still' : ''} ${viewState.compact ? 'learning-compact' : ''}`} data-testid="learning-studio">
       <div className="learning-topline">
         <div><span className="learning-kicker">SIM 實作教學</span><span className="learning-workspace">{workspace.company_name}</span></div>
         <button className="learning-exit" data-testid="learning-exit" onClick={() => onNavigate('overview')}>回工作總覽 <span aria-hidden="true">↗</span></button>
@@ -277,9 +265,14 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
         {paths.map(path => (
           <button key={path.id} data-testid={`learning-route-${path.id}`} aria-pressed={path.id === session.path} disabled={busy || localBusy || pending} className={path.id === session.path ? 'is-selected' : ''} onClick={() => selectPath(path.id)}>
             <span className="learning-route-icon" aria-hidden="true">{path.id === 'sales' ? '↗' : path.id === 'service' ? '✓' : '◇'}</span>
-            <span><strong>{path.title}</strong><small>{path.subtitle}</small></span>
+            <span><strong>{path.title}</strong><small>{path.subtitle}</small><em>{(() => {const saved = session.path === path.id ? session : readLearningSession(workspace, path.id); const count = saved ? evaluateLearning(workspace, saved).steps.filter(item => item.complete).length : 0; return `${count}／${path.steps.length} 步驟已確認`;})()}</em></span>
           </button>
         ))}
+      </div>
+
+      <div className="learning-view-tools">
+        <div className="learning-scope-control" role="group" aria-label="教學資料範圍"><span>資料範圍</span><button data-testid="learning-scope-lesson" aria-pressed={viewState.scope === 'lesson'} onClick={() => updateView({scope: 'lesson'})}>本輪練習</button><button data-testid="learning-scope-workspace" aria-pressed={viewState.scope === 'workspace'} onClick={() => updateView({scope: 'workspace'})}>整個工作區</button></div>
+        <button className="learning-compact-toggle" data-testid="learning-compact" aria-pressed={viewState.compact} onClick={() => updateView({compact: !viewState.compact})}>{viewState.compact ? '展開教學畫面' : '精簡教學畫面'}</button>
       </div>
 
       <div className="learning-theatre">
@@ -307,7 +300,7 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
           </ol>
         </div>
 
-        <div className="learning-theatre-bottom"><span>{copy.outcome}</span><span className="learning-live-chip"><i aria-hidden="true"/> 工作區資料 · 版本 {workspace.version}</span></div>
+        <div className="learning-theatre-bottom"><span>{copy.outcome}</span><span className="learning-live-chip"><i aria-hidden="true"/> {viewState.scope === 'lesson' ? '本輪練習 · 共用庫存另標示' : '整個工作區'} · 版本 {workspace.version}</span></div>
       </div>
 
       <div className="learning-progress-row">
@@ -352,13 +345,15 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
             </details>)}
           </div>
 
-          {change?.stepId === current.step.id && <div className="learning-change-board">
-            <div className="learning-change-head"><strong>本次操作前後</strong><span>同一個工作區的實際資料</span></div>
+          {current.complete&&!change&&<p className="learning-snapshot-note">這一步沒有保存當時的前後讀值，可用操作紀錄核對完成結果。</p>}
+          {change && <div className="learning-change-board" data-testid="learning-snapshot">
+            <div className="learning-change-head"><strong>本次操作前後</strong><span>本輪練習 · 操作版本 {change.version}</span></div>
             <div className="learning-change-columns" aria-hidden="true"><span>核對項目</span><span>操作前</span><span>操作後</span></div>
             {change.rows.map(row => <div className={row.before !== row.after ? 'has-changed' : ''} key={row.label}><strong>{row.label}</strong><span aria-label={`操作前 ${row.before}`}>{row.before}</span><span aria-label={`操作後 ${row.after}`}>{row.after}</span></div>)}
+            <p className="learning-snapshot-note">本分頁操作時的讀值，完成以操作收據及目前資料核對。</p>
           </div>}
 
-          <div className="learning-scene-actions">
+          <div className="learning-scene-actions" data-testid="learning-action-dock">
             {readingPast ? <><span>這一步已有證據，回看不會重複執行。</span>{!evaluation.complete && <button className="primary" data-testid="learning-next" disabled={busy||localBusy} onClick={goNext}>前往下一個實作步驟</button>}</>
               : readingAhead ? <><span>先完成前面的實作，再回到這一步。</span><button disabled={busy||localBusy} onClick={goNext}>回到目前實作步驟</button></>
               : <><span>{paused ? '繼續教學後，就能執行這一步。' : pending ? '先確認上次操作的結果，再繼續實作。' : '按下按鈕才會執行上方預覽的模擬操作。'}</span><button className="primary" data-testid="learning-execute" disabled={!canExecute} onClick={() => void execute()}>{busy || localBusy ? '等待操作確認…' : '執行這一步'}</button></>}
@@ -371,16 +366,16 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
       <div className="learning-bottom-grid">
         <section className="learning-thinking">
           <span className="learning-kicker">先想想</span><h2>{quiz.question}</h2><fieldset><legend className="learning-sr-only">選擇你的答案</legend>
-            {quiz.choices.map((text, index) => <label key={text} className={choice === index ? 'is-selected' : ''}><input type="radio" name={`learning-quiz-${pathId}`} checked={choice === index} onChange={() => setChoice(index)}/><span>{text}</span></label>)}
+            {quiz.choices.map((text, index) => <label key={text} className={choice === index ? 'is-selected' : ''}><input type="radio" data-testid={`learning-quiz-choice-${index}`} name={`learning-quiz-${pathId}`} checked={choice === index} onChange={() => updateView({choice: index})}/><span>{text}</span></label>)}
           </fieldset>
           {choice !== null && <div className="learning-answer" role="status"><strong>{choice === quiz.answer ? '你抓到這一步的重點了。' : '再看一下資料改變的時機。'}</strong><p>{quiz.explanation}</p></div>}
           <small>答題只用來理解流程，不會阻擋實作，也不會修改工作區。</small>
         </section>
 
-        <section className="learning-live-data">
-          <div className="learning-section-label">現在的工作區 <span>實際資料</span></div><h2>{workspace.company_name}</h2>
+        <section className="learning-live-data" data-testid="learning-live-facts">
+          <div className="learning-section-label">{viewState.scope === 'lesson' ? '本輪練習的資料' : '整個工作區的資料'} <span>目前讀值</span></div><h2>{workspace.company_name}</h2>
           <dl>{currentFacts.map(fact => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}</dl>
-          <p>數字涵蓋目前工作區全部紀錄。教學完成證據另以本次路線的操作來源核對。</p>
+          <p>{viewState.scope === 'lesson' ? '本輪紀錄以這次教學的操作來源辨認，商品庫存與商家測試幣共用並另標示。' : '數字涵蓋種子資料及其他練習。教學完成證據仍只核對本輪操作。'}</p>
         </section>
       </div>
 

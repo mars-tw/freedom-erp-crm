@@ -32,6 +32,7 @@
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.mjs",
     "test:e2e": "playwright test",
     "worker:dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "verify:public": "node scripts/verify-public-build.mjs",
     "prepack": "npm run build",
     "prepare": "npm run build"
   },

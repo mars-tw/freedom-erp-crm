@@ -1,0 +1,60 @@
+import {test,expect,type Page} from '@playwright/test';
+import {randomUUID} from 'node:crypto';
+async function view(page:Page){const r=await page.request.get('/api/workspace/view');expect(r.status()).toBe(200);return r.json();}
+const nav=(page:Page)=>page.getByRole('navigation',{name:'工作模組',exact:true});
+async function setup(page:Page,name='合成：教學細節驗證'){
+ await page.goto('/');if(process.env.EXPECTED_PUBLIC_ASSET)await expect(page.locator('script[src]')).toHaveAttribute('src','/assets/'+process.env.EXPECTED_PUBLIC_ASSET);
+ await page.getByLabel('店名／工作室名稱',{exact:true}).fill(name);await page.getByRole('button',{name:/^一般企業/}).click();await page.getByRole('button',{name:'建立我的測試系統',exact:true}).click();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+ await nav(page).getByRole('button',{name:'沉浸教學',exact:true}).click();await page.getByTestId('learning-route-sales').click();
+}
+async function firstThree(page:Page){
+ const snapshots:Record<string,string>={};
+ for(const [i,id] of ['customer','buyer','fund-business'].entries()){
+  await expect(page.getByTestId('learning-step-'+id)).toHaveAttribute('aria-current','step');const before=await view(page);await page.getByTestId('learning-execute').click();await expect.poll(async()=>(await view(page)).version).toBe(before.version+1);
+  await expect(page.getByTestId('learning-snapshot')).toBeVisible();await expect(page.getByTestId('learning-evidence')).not.toContainText('尚無本次操作證據');snapshots[id]=(await page.getByTestId('learning-snapshot').textContent())!;
+  if(i<2)await page.getByTestId('learning-next').click();
+ }
+ await expect(page.getByTestId('learning-progress')).toHaveAttribute('aria-valuenow','3');return snapshots;
+}
+async function customView(page:Page){await page.getByTestId('learning-quiz-choice-1').check();await page.getByTestId('learning-scope-workspace').click();await page.getByTestId('learning-compact').click();await expect(page.getByTestId('learning-compact')).toHaveAttribute('aria-pressed','true');}
+async function assertDefaults(page:Page){await expect(page.getByTestId('learning-progress')).toHaveAttribute('aria-valuenow','0');await expect(page.getByTestId('learning-scope-lesson')).toHaveAttribute('aria-pressed','true');await expect(page.getByTestId('learning-compact')).toHaveAttribute('aria-pressed','false');for(let i=0;i<3;i++)await expect(page.getByTestId('learning-quiz-choice-'+i)).not.toBeChecked();await expect(page.getByTestId('learning-snapshot')).toHaveCount(0);}
+
+test('earlier chapter snapshots, quiz, scope and compact view survive reload and workspace navigation without mutations',async({page})=>{
+ await setup(page);const snapshots=await firstThree(page);await page.getByTestId('learning-step-customer').click();await expect(page.getByTestId('learning-snapshot')).toHaveText(snapshots.customer);await customView(page);const stable=(await view(page)).workspace;
+ await page.reload();await expect(page.getByTestId('learning-step-customer')).toHaveAttribute('aria-current','step');await expect(page.getByTestId('learning-quiz-choice-1')).toBeChecked();await expect(page.getByTestId('learning-scope-workspace')).toHaveAttribute('aria-pressed','true');await expect(page.getByTestId('learning-compact')).toHaveAttribute('aria-pressed','true');await expect(page.getByTestId('learning-snapshot')).toHaveText(snapshots.customer);expect((await view(page)).workspace).toEqual(stable);
+ await nav(page).getByRole('button',{name:'測試幣流水',exact:true}).click();await nav(page).getByRole('button',{name:'沉浸教學',exact:true}).click();await expect(page.getByTestId('learning-step-customer')).toHaveAttribute('aria-current','step');await expect(page.getByTestId('learning-snapshot')).toHaveText(snapshots.customer);await expect(page.getByTestId('learning-quiz-choice-1')).toBeChecked();await expect(page.getByTestId('learning-compact')).toHaveAttribute('aria-pressed','true');await expect(page.getByTestId('learning-scope-workspace')).toHaveAttribute('aria-pressed','true');
+ await page.getByTestId('learning-step-buyer').click();await expect(page.getByTestId('learning-snapshot')).toHaveText(snapshots.buyer);await page.getByTestId('learning-step-fund-business').click();await expect(page.getByTestId('learning-snapshot')).toHaveText(snapshots['fund-business']);expect((await view(page)).workspace).toEqual(stable);await page.screenshot({path:'test-results/learning-refinements-compact.png',fullPage:true});
+});
+
+test('lesson numbers exclude an unrelated buyer while workspace numbers include real extra activity',async({page})=>{
+ await setup(page);await firstThree(page);
+ // Only unrelated activity is set up via the real API. All teaching checkpoints
+ // above are created by their canonical UI buttons, never fabricated fixtures.
+ async function unrelated(action:string,payload:any){const v=await view(page);const r=await page.request.post('/api/workspace/commands',{headers:{Origin:new URL(page.url()).origin,'x-csrf-token':v.csrf,'Idempotency-Key':randomUUID(),'If-Match-Version':String(v.version)},data:{action,payload}});expect(r.status()).toBe(200);return r.json();}
+ const buyer=await unrelated('wallet.create',{name:'非本輪：另一位買家',kind:'buyer'});await unrelated('wallet.fund',{wallet_id:buyer.result,amount_minor:200000});await page.reload();const stable=(await view(page)).workspace;
+ await expect(page.getByTestId('learning-scope-lesson')).toHaveAttribute('aria-pressed','true');await expect(page.getByTestId('learning-live-facts').getByText('本輪顧客',{exact:true}).locator('..').locator('dd')).toHaveText('1 位');await expect(page.getByTestId('learning-live-facts')).not.toContainText('2,000 SIM');await page.getByTestId('learning-scope-workspace').click();await expect(page.getByTestId('learning-live-facts').getByText('工作區顧客',{exact:true}).locator('..').locator('dd')).toHaveText(stable.customers.length+' 位');expect(stable.customers.length).toBeGreaterThan(1);await expect(page.getByTestId('learning-live-facts')).toContainText('2,000 SIM');await page.getByTestId('learning-scope-lesson').click();await expect(page.getByTestId('learning-live-facts')).not.toContainText('2,000 SIM');expect((await view(page)).workspace).toEqual(stable);
+});
+
+test('another learning run clears answers, snapshots and view preferences while preserving business data',async({page})=>{
+ await setup(page);await firstThree(page);await customView(page);const stable=(await view(page)).workspace;await page.getByTestId('learning-restart').click();await assertDefaults(page);expect((await view(page)).workspace).toEqual(stable);await page.reload();await assertDefaults(page);expect((await view(page)).workspace).toEqual(stable);
+ const before=await view(page);await page.getByTestId('learning-execute').click();await expect.poll(async()=>(await view(page)).version).toBe(before.version+1);const after=(await view(page)).workspace;expect(after.customers).toHaveLength(stable.customers.length+1);expect(after.ledger).toEqual(stable.ledger);expect(after.wallets).toEqual(stable.wallets);
+});
+
+test('new workspace generation does not inherit chapter, quiz, scope, compact mode or snapshots',async({page})=>{
+ await setup(page);await firstThree(page);await page.getByTestId('learning-step-buyer').click();await customView(page);const old=(await view(page)).workspace;await nav(page).getByRole('button',{name:'設定與資料',exact:true}).click();await page.getByRole('button',{name:'清除測試資料',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'確認模擬操作',exact:true}).click();await expect(page.getByRole('button',{name:'建立我的測試系統',exact:true})).toBeVisible();await page.getByLabel('店名／工作室名稱',{exact:true}).fill('合成：全新章節');await page.getByRole('button',{name:/^一般企業/}).click();await page.getByRole('button',{name:'建立我的測試系統',exact:true}).click();await expect(page.getByRole('heading',{name:'合成：全新章節',exact:true})).toBeVisible();const fresh=(await view(page)).workspace;expect(fresh.generation_id).not.toBe(old.generation_id);await nav(page).getByRole('button',{name:'沉浸教學',exact:true}).click();await page.getByTestId('learning-route-sales').click();await assertDefaults(page);await expect(page.getByTestId('learning-step-customer')).toHaveAttribute('aria-current','step');expect((await view(page)).workspace).toEqual(fresh);
+});
+
+test('320px reduced-motion canonical dock stays visible, keeps final content clear and supports keyboard chapter focus',async({page})=>{
+ await page.setViewportSize({width:320,height:850});await page.emulateMedia({reducedMotion:'reduce'});await setup(page);const dock=page.getByTestId('learning-action-dock');await expect(dock).toBeVisible();await expect(page.getByTestId('learning-execute')).toHaveCount(1);expect(await dock.evaluate(element=>getComputedStyle(element).position)).toBe('fixed');
+ const before=await view(page);await page.getByTestId('learning-execute').focus();await page.keyboard.press('Enter');await expect.poll(async()=>(await view(page)).version).toBe(before.version+1);await expect(page.getByTestId('learning-next')).toBeEnabled();await page.getByTestId('learning-next').focus();await page.keyboard.press('Enter');await expect(page.getByRole('heading',{name:'建立買家錢包',exact:true})).toBeFocused();const stable=(await view(page)).workspace;await page.getByTestId('learning-step-customer').focus();await page.keyboard.press('Enter');await expect(page.getByRole('heading',{name:'建立練習顧客',exact:true})).toBeFocused();await expect(page.getByTestId('learning-snapshot')).toBeVisible();expect((await view(page)).workspace).toEqual(stable);
+ await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));const box=await dock.boundingBox();expect(box).not.toBeNull();expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(851);const last=page.getByTestId('learning-live-facts').locator('p,dd').last();await expect(last).toBeVisible();const lastBox=await last.boundingBox();expect(lastBox).not.toBeNull();expect(lastBox!.y+lastBox!.height).toBeLessThanOrEqual(box!.y+1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.screenshot({path:'test-results/learning-refinements-mobile-320.png',fullPage:true});
+});
+
+test('committed teaching response recovery preserves the original customer before and after snapshot',async({page})=>{
+ await setup(page);const initial=await view(page),keys:string[]=[];page.on('request',r=>{if(r.url().endsWith('/api/workspace/commands'))keys.push(r.headers()['idempotency-key']);});
+ await page.route('**/api/workspace/commands',async route=>{const response=await route.fetch();expect(response.status()).toBe(200);await route.abort('failed');},{times:1});
+ await page.getByTestId('learning-execute').click();await expect(page.getByRole('alert').filter({hasText:'上次操作的結果尚未確認'})).toBeVisible();expect((await view(page)).version).toBe(initial.version+1);await page.reload();await page.getByRole('button',{name:'確認原操作結果',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'已確認並恢復原操作。'})).toBeVisible();await expect(page.getByTestId('learning-progress')).toHaveAttribute('aria-valuenow','1');
+ expect(keys).toHaveLength(2);expect(keys[0]).toBe(keys[1]);const stable=(await view(page)).workspace;const customers=stable.customers.filter((v:any)=>!initial.workspace.customers.some((old:any)=>old.id===v.id));expect(customers).toHaveLength(1);expect(customers[0].name).toMatch(/^教學客戶 /);expect(stable.version).toBe(initial.version+1);
+ await page.getByTestId('learning-step-customer').click();const snapshot=page.getByTestId('learning-snapshot');await expect(snapshot).toBeVisible();const customerRow=snapshot.locator('div').filter({has:page.getByText('本輪顧客',{exact:true})});await expect(customerRow.getByLabel('操作前 0 位',{exact:true})).toBeVisible();await expect(customerRow.getByLabel('操作後 1 位',{exact:true})).toBeVisible();const original=(await snapshot.textContent())!;
+ await page.reload();await expect(page.getByTestId('learning-step-customer')).toHaveAttribute('aria-current','step');await expect(page.getByTestId('learning-snapshot')).toHaveText(original);expect((await view(page)).workspace).toEqual(stable);
+});
