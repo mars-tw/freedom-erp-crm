@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:net';
+import {createRequire} from 'node:module';
 
 const packageRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const known=new Set(['industry','name','modules','directory','port','dry-run','help']);
@@ -60,7 +61,8 @@ async function main(){
  if(options['dry-run']){console.log(JSON.stringify(output));return;}
  try{await readFile(join(packageRoot,'dist','index.html'));}catch{throw Error('尚未建置介面。請在原始碼專案先執行 npm run build；GitHub 安裝會自動建置。');}
  console.log(`已建立 ${company}（${template.name}）。開啟 ${output.url}\n資料保存在 ${output.storage}。按 Ctrl+C 停止，重新執行相同指令可繼續使用。`);
- const wrangler=join(packageRoot,'node_modules','wrangler','bin','wrangler.js');
+ const dependencyRoot=dirname(createRequire(import.meta.url).resolve('wrangler/package.json'));
+ const wrangler=join(dependencyRoot,'bin','wrangler.js');
  const child=spawn(process.execPath,[wrangler,'dev','--config',join(directory,'wrangler.json'),'--persist-to',output.storage,'--port',String(port),'--ip','127.0.0.1','--inspector-port','0'],{cwd:packageRoot,stdio:'inherit',shell:false});
  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));
  await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>code===0||code===null?resolve():reject(Error(`本機服務退出：${code}`)));});
