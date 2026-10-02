@@ -1,0 +1,60 @@
+{
+  "name": "freedom-erp-crm",
+  "version": "0.1.0",
+  "description": "Industry-template ERP and CRM simulation starter with isolated public workspaces",
+  "type": "module",
+  "license": "MIT",
+  "author": "mars-tw",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "freedom-erp": "bin/freedom-erp.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "web",
+    "dist",
+    "templates",
+    "wrangler.jsonc",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "docs",
+    "scripts"
+  ],
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "start": "node bin/freedom-erp.mjs",
+    "build": "vite build --config web/vite.config.ts && node scripts/copy-notices.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "worker:dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "prepack": "npm run build",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "hono": "4.13.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5",
+    "wrangler": "4.138.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260924.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.0",
+    "miniflare": "5.20260921.1-alpha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mars-tw/freedom-erp-crm.git"
+  }
+}

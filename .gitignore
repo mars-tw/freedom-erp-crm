@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.freedom-instance/
+.audit-tmp/
+test-results/
+playwright-report/
+*.log
+.env
+.env.*
+!.env.example

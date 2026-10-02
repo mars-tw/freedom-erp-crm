@@ -1,0 +1,40 @@
+Freedom ERP CRM
+Copyright (c) 2026 mars-tw
+Project code is licensed under the MIT License in LICENSE.
+
+The ERP simulation domain was developed for this user in the preceding local
+Freedom ERP/CRM work and adapted into this independent project. This project
+does not redistribute the original freedom-platform membership/authentication
+code, unlicensed platform assets, real member databases, or credentials.
+The upstream platform is referenced for community integration only.
+
+Dependencies retain their own licenses and authorship:
+- React and React DOM: MIT; Copyright Meta Platforms, Inc. and affiliates.
+  https://github.com/facebook/react/blob/main/LICENSE
+- Hono: MIT; Copyright (c) 2021 - present, Yusuke Wada and Hono contributors.
+  https://github.com/honojs/hono/blob/main/LICENSE
+- Zod: MIT; Copyright (c) 2025 Colin McDonnell.
+  https://github.com/colinhacks/zod/blob/main/LICENSE
+- Wrangler: MIT OR Apache-2.0; Cloudflare and contributors.
+  https://github.com/cloudflare/workers-sdk
+- Vite: MIT; Evan You and contributors.
+  https://github.com/vitejs/vite/blob/main/LICENSE
+- TypeScript: Apache-2.0; Microsoft Corporation.
+  https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt
+
+MIT dependency permission terms:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
