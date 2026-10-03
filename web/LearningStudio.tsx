@@ -10,6 +10,7 @@ import {
   type LearningSession,
 } from './learning';
 import {readActiveLearningSession, readLearningSession, rememberLearningOperation, writeLearningSession} from './learning-storage';
+import {learningRecordTarget,type WorkspaceTarget} from './workbench-model';
 import {learningFacts, readLearningView, writeLearningView, type LearningViewState} from './learning-view';
 import './learning.css';
 
@@ -18,7 +19,7 @@ export interface LearningStudioProps {
   busy: boolean;
   pending: boolean;
   onCommand: (action: string, payload: RecordData) => Promise<{result: string; workspace: Workspace} | null>;
-  onNavigate: (nav: string) => void;
+  onNavigate: (nav: string,target?:WorkspaceTarget) => void;
 }
 
 const routeCopy: Record<LearningPathId, {headline: string;intro: string;outcome: string}> = {
@@ -357,7 +358,7 @@ export function LearningStudio({workspace, busy, pending, onCommand, onNavigate}
             {readingPast ? <><span>這一步已有證據，回看不會重複執行。</span>{!evaluation.complete && <button className="primary" data-testid="learning-next" disabled={busy||localBusy} onClick={goNext}>前往下一個實作步驟</button>}</>
               : readingAhead ? <><span>先完成前面的實作，再回到這一步。</span><button disabled={busy||localBusy} onClick={goNext}>回到目前實作步驟</button></>
               : <><span>{paused ? '繼續教學後，就能執行這一步。' : pending ? '先確認上次操作的結果，再繼續實作。' : '按下按鈕才會執行上方預覽的模擬操作。'}</span><button className="primary" data-testid="learning-execute" disabled={!canExecute} onClick={() => void execute()}>{busy || localBusy ? '等待操作確認…' : '執行這一步'}</button></>}
-            <button className="learning-inspect" onClick={() => onNavigate(current.step.nav)}>到工作台核對 ↗</button>
+            <button className="learning-inspect" onClick={() => onNavigate(current.step.nav,learningRecordTarget(workspace,session,current.step.id))}>到工作台核對 ↗</button>
           </div>
           <p className="learning-live-message" role="status" aria-live="polite">{notice}</p>
         </div>
