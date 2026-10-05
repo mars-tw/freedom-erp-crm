@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-10-05
 last_updated: 2026-10-05
 owner: mars-tw
-status: In progress
+status: Completed
 tags: [design, templates, interface, responsive, simulation]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In_progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-green)
 
 對象是使用八種 SIM 產業範本的店家、工廠與辦公室。這輪讓使用者挑選符合自己的視覺風格，模板改變導覽結構、字體、卡片、留白與配色；原交易、行政、教學及資料規則保留。先比較三種外框，再設計八個有獨立角色的模板，避免八張同版面縮圖只換顏色。
 
@@ -53,7 +53,7 @@ tags: [design, templates, interface, responsive, simulation]
 |------|-------------|-----------|------|
 | TASK-006 | `tests/design-templates.test.ts` 驗證目錄、非法偏好及拒絕保存；`tests/e2e/design-templates.spec.ts` 驗證八套、試看取消／保存、零寫入、淺深色、320 px、焦點與列印。 | Yes | 2026-10-05 |
 | TASK-007 | build 後擷取並實際看八套桌面／手機圖，執行原完整回歸、程式與 dry-run，修復對比／溢出／互動問題後凍結。 | Yes | 2026-10-05 |
-| TASK-008 | 更新使用文件與驗收，推送 mars-tw 專案、驗證 CI、同 namespace 公開部署與原資料保存；實際公開完整回歸通過後記錄 Completed。 | | |
+| TASK-008 | 更新使用文件與驗收，推送 mars-tw 專案、驗證 CI、同 namespace 公開部署與原資料保存；實際公開完整回歸通過後記錄 Completed。 | Yes | 2026-10-05 |
 
 ## 3. Alternatives
 
