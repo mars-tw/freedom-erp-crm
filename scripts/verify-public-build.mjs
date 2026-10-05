@@ -16,7 +16,7 @@ export async function verifyPublicBuild({url,distDir=resolve(dirname(fileURLToPa
   if(!paths.some(path=>path.endsWith('.js'))||!paths.some(path=>path.endsWith('.css'))||paths.some(path=>path.includes('..')))throw new Error('Build the local frontend before checking its deployment.');
   const expected=new Map(await Promise.all(paths.map(async path=>[path,digest(await readFile(resolve(distDir,'.'+path)))])));
   const deadline=Date.now()+timeoutMs;
-  let attempts=0,last='Public build not checked.';
+  let attempts=0,last='Public build not checked.',observedMismatch='';
   do {
     attempts++;
     try {
@@ -30,11 +30,11 @@ export async function verifyPublicBuild({url,distDir=resolve(dirname(fileURLToPa
         if(!asset.ok||digest(Buffer.from(await asset.arrayBuffer()))!==expected.get(path))throw new Error('Public asset bytes do not match the local build.');
       }
       return {ready:true,attempts,assets:paths};
-    }catch(error){last=error instanceof Error?error.message:'Public build check failed.';onAttempt({attempts,ready:false,reason:last});}
+    }catch(error){last=error instanceof Error?error.message:'Public build check failed.';if(last.includes('different build')||last.includes('asset bytes'))observedMismatch=last;onAttempt({attempts,ready:false,reason:last});}
     const remaining=deadline-Date.now();if(remaining<=0)break;
     await new Promise(done=>setTimeout(done,Math.min(intervalMs,remaining)));
   }while(Date.now()<deadline);
-  throw new Error(`Public build was not verified after ${attempts} checks: ${last}`);
+  throw new Error(`Public build was not verified after ${attempts} checks: ${last}${observedMismatch&&observedMismatch!==last?'; previously observed: '+observedMismatch:''}`);
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
