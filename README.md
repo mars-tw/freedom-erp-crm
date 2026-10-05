@@ -10,7 +10,7 @@
 
 日常工作台提供全站搜尋、清單篩選與分頁、待處理工作及操作條件提示；教學可直接定位到對應紀錄。任務與里程碑支援到期時間，詳見[日常操作](docs/workbench.md)。
 
-外觀可切換暖紙、深色或系統配色，並調整資訊密度；新增快速建立、紀錄釘選與待處理分類，詳見[外觀與快捷操作](docs/interface.md)。
+**[八套設計模板圖庫](https://freedom-erp-crm-demo.digimkt.workers.dev/#design)**：深海商務、典雅企業、品牌工作室、活力店務、工廠控制室、自然門市、編輯工作台與夜間科技。各有導覽、字體、卡片與留白設計，可先試看、取消或套用；淺色／深色／系統配色與資訊密度獨立保留。詳見[模板操作](docs/design-templates.md)；快速建立、紀錄釘選與待處理分類見[外觀與快捷操作](docs/interface.md)。
 
 完整企業管理、排班、人資、薪資結構、模擬資金對帳、會計、稅務與發票已整理成[企業擴充設計](docs/enterprise/README.md)及[可點選功能藍圖](https://freedom-erp-crm-demo.digimkt.workers.dev/enterprise-plan.html)。企業版新增十七個模組目前均為規劃，尚未加入資料引擎；藍圖提供規模切換、用途、操作流程與分期安排。
 

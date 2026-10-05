@@ -3,6 +3,7 @@ dist/
 .wrangler/
 .freedom-instance/
 .audit-tmp/
+.playwright-cli/
 test-results/
 playwright-report/
 *.log
