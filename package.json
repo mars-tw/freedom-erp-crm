@@ -22,6 +22,8 @@
     "NOTICE",
     "README.md",
     "docs",
+    "spec",
+    "plan",
     "scripts"
   ],
   "scripts": {
