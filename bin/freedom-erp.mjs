@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {createRequire} from 'node:module';
 import {normalizeLaunchConfig} from './launch-config.mjs';
+import {openBrowser} from './browser-opener.mjs';
 
 const packageRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const known=new Set(['industry','name','modules','directory','port','config','open','doctor','dry-run','help']);
@@ -88,13 +89,6 @@ async function runtimeConfig(directory,launch,hash,existing){
  const priorRoot=dirname(dirname(stored.main));
  if(stored.main!==join(priorRoot,'src','worker.ts')||stored.assets.directory!==join(priorRoot,'dist')||!same({...stored,main:desired.main,assets:{...stored.assets,directory:desired.assets.directory}},desired))throw Error('已有執行設定與實例不符，未覆寫資料。');
  return {desired,path,refresh:!same(stored,desired)};
-}
-async function openBrowser(url){
- // Only a generated localhost URL enters Windows cmd. Company and paths never do.
- if(!/^http:\/\/127\.0\.0\.1:\d+\/#learning$/.test(url))throw Error('本機網址格式不符。');
- const executable=process.platform==='win32'?(process.env.ComSpec??'cmd.exe'):process.platform==='darwin'?'open':'xdg-open';
- const args=process.platform==='win32'?['/d','/s','/c',`start "" "${url}"`]:[url];
- await new Promise((done,reject)=>{const opener=spawn(executable,args,{shell:false,windowsHide:true,stdio:'ignore'});opener.once('error',reject);opener.once('exit',code=>code===0?done():reject(Error(`瀏覽器啟動失敗：${code}`)));});
 }
 async function waitReady(url,launch,exit){
  const deadline=Date.now()+90000;

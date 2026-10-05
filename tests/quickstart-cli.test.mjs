@@ -1,11 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import {EventEmitter} from 'node:events';
 import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,existsSync,symlinkSync,statSync,readdirSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {createServer} from 'node:net';
 import {randomUUID} from 'node:crypto';
 import {normalizeLaunchConfig} from '../bin/launch-config.mjs';
+import {browserCommand,openBrowser} from '../bin/browser-opener.mjs';
 
 const root=resolve('.'),cli=join(root,'bin/freedom-erp.mjs');
 const catalog=JSON.parse(readFileSync(join(root,'templates/catalog.json'),'utf8'));
@@ -87,4 +89,16 @@ test('Windows rejects actual long workerd storage paths before dry-run or doctor
  for(const flag of ['--dry-run','--doctor']){
   const result=run(['--config',f.path,flag]);assert.notEqual(result.status,0);assert.match(result.stderr,/workerd.*260.*較短/);assert.match(result.stderr,/尚未建立或覆寫資料/);assert.equal(existsSync(f.directory),false);assert.deepEqual(readdirSync(f.folder),['launch.json']);unchanged(before);
  }
+});
+test('browser opener passes cmd raw trusted URL, has bounded failure and leaves workspace processes untouched',async()=>{
+ const url='http://127.0.0.1:8789/#learning',calls=[];
+ function child(){const result=new EventEmitter();result.exitCode=null;result.signalCode=null;result.killed=[];result.kill=signal=>{result.killed.push(signal);result.signalCode=signal;return true;};return result;}
+ const successful=child();
+ await openBrowser(url,{platform:'win32',commandInterpreter:'C:\\Windows\\System32\\cmd.exe',spawnProcess:(command,args,options)=>{calls.push({command,args,options});queueMicrotask(()=>{successful.exitCode=0;successful.emit('exit',0,null);});return successful;}});
+ assert.equal(calls[0].command,'C:\\Windows\\System32\\cmd.exe');assert.deepEqual(calls[0].args,['/d','/s','/c','start "" "http://127.0.0.1:8789/#learning"']);assert.equal(calls[0].options.windowsVerbatimArguments,true);assert.equal(calls[0].options.windowsHide,true);assert.equal(calls[0].options.shell,false);assert.deepEqual(successful.killed,[]);
+ const hung=child(),before=Date.now();await assert.rejects(openBrowser(url,{timeoutMs:25,spawnProcess:()=>hung}),/逾時/);assert.ok(Date.now()-before<1000);assert.deepEqual(hung.killed,['SIGTERM']);hung.emit('error',Error('late child error'));hung.emit('exit',1,'SIGTERM');
+ const failed=child();await assert.rejects(openBrowser(url,{spawnProcess:()=>{queueMicrotask(()=>failed.emit('exit',7,null));return failed;}}),/失敗：7/);assert.deepEqual(failed.killed,[]);
+ const unavailable=child();await assert.rejects(openBrowser(url,{spawnProcess:()=>{queueMicrotask(()=>unavailable.emit('error',Error('opener unavailable')));return unavailable;}}),/opener unavailable/);assert.deepEqual(unavailable.killed,[]);
+ assert.equal(browserCommand(url,'darwin').command,'open');assert.deepEqual(browserCommand(url,'linux').args,[url]);
+ let starts=0;for(const bad of ['http://example.test:8789/#learning','http://127.0.0.1:8789/#learning&echo','http://127.0.0.1:65536/#learning','http://127.0.0.1:8789/#learning"','http://127.0.0.1:08789/#learning'])await assert.rejects(openBrowser(bad,{spawnProcess:()=>{starts++;return child();}}),/網址/);assert.equal(starts,0);
 });
