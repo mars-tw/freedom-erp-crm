@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-10-05
 last_updated: 2026-10-05
 owner: mars-tw
-status: In progress
+status: Completed
 tags: [feature, quality, workflows, backup, simulation]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In_progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-green)
 
 本輪把目前已提供的八個 SIM 模組做成可完整跑通的測試版：建立資料、修改、更正、作廢／取消、查看來源、報表、備份及還原都有實際流程。公開功能不以規劃卡片或只可新增的表單當完成。完整企業身份、真薪資、銀行及正式稅務依原範圍仍不接入。
 
@@ -55,8 +55,8 @@ tags: [feature, quality, workflows, backup, simulation]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-008 | 執行領域、實際 API、大中文備份／重啟、店家與辦公室完整瀏覽器旅程、CSV／print、preview取消、失去回應恢復、手機與舊功能回歸。 | | |
-| TASK-009 | 型別、build、Worker dry-run、包內容、私人狀態排除、GitHub／CI、公開內容與訪客資料保存核對全部完成，再標記本計畫 Completed。 | | |
+| TASK-008 | 執行領域、實際 API、大中文備份／重啟、店家與辦公室完整瀏覽器旅程、CSV／print、preview取消、失去回應恢復、手機與舊功能回歸。 | Yes | 2026-10-05 |
+| TASK-009 | 型別、build、Worker dry-run、包內容、私人狀態排除、GitHub／CI、公開內容與訪客資料保存核對全部完成，再標記本計畫 Completed。 | Yes | 2026-10-05 |
 
 ## 3. Alternatives
 
@@ -74,7 +74,7 @@ tags: [feature, quality, workflows, backup, simulation]
 
 - **FILE-001**: `src/administration.ts`、`src/engine.ts`、`src/workspace-backup.ts`、`src/workspace-storage.ts`、`src/worker.ts`。
 - **FILE-002**: `web/AdministrationDesk.tsx`、`web/administration-model.ts`、`web/administration.css`、`web/api.ts`、`web/workspace-backup.ts`、`web/BackupRestoreDialog.tsx`、`web/quality-tools.css`、`web/main.tsx`。
-- **FILE-003**: `tests/administration.test.ts`、`tests/administration-api.test.ts`、`tests/workspace-backup.test.ts`、`tests/e2e/administration.spec.ts`、操作／備份／驗收文件及本計畫。
+- **FILE-003**: `tests/administration.test.ts`、`tests/administration-api.test.ts`、`tests/workspace-backup.test.ts`、`tests/e2e/*.spec.ts`（含各測試獨立截圖輸出）、操作／備份／驗收文件及本計畫。
 
 ## 6. Testing
 
