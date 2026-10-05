@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-10-05
 last_updated: 2026-10-05
 owner: mars-tw
-status: In progress
+status: Completed
 tags: [feature, administration, simulation, store, sme]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In_progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 本輪以實際資料操作完成行政試用：據點／部門、假員工、班表、手動出勤、行政申請、設備、借用、公告。每位訪客仍有自己的 SIM 工作區；這是獨立的 `administration` 小型模組，不把企業藍圖的十七個完整模組或 Phase 0 身份驗證宣告完成。
 
@@ -56,7 +56,7 @@ tags: [feature, administration, simulation, store, sme]
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-007 | 執行 domain／實際 Miniflare API／瀏覽器流程，驗證引用、狀態、複製原子性、隔離、匯出匯入、pending、手機、既有資料及 SIM 財務不變。 | ✅ | 2026-10-05 |
-| TASK-008 | 型別、建置、Worker dry-run、完整回歸與打包；推送 mars-tw 個人 repo，沿用公開站 namespace，核對部署內容與工作區 hash，確認 CI。 | | |
+| TASK-008 | 型別、建置、Worker dry-run、完整回歸與打包；推送 mars-tw 個人 repo，沿用公開站 namespace，核對部署內容與工作區 hash，確認 CI。 | ✅ | 2026-10-05 |
 
 ## 3. Alternatives
 
