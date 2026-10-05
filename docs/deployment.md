@@ -18,6 +18,8 @@ npm run verify:public -- https://你的公開網址/
 
 部署後的檢查會等待最多 60 秒，核對公開 HTML 引用的 JS／CSS 版本，以及實際檔案內容的 SHA-256。尚在傳播的舊版本不會被算成新版成功；逾時請保留輸出、稍後重查。接著以 `TEST_URL` 指向公開站執行瀏覽器測試，並設定 `EXPECTED_PUBLIC_ASSET` 為本次 `dist/assets/` 的 JS 檔名。
 
+同時執行本機與公開回歸時，請為兩輪指定不同的 `--output`，例如 `.audit-tmp/e2e-local` 與 `.audit-tmp/e2e-public`。各測試的截圖使用自己的 `test.info().outputPath()`，和該輪 trace 一起保存，避免共用目錄的清理互相影響。
+
 本次 mars-tw 公開測試站的網址及部署結果記於[驗收紀錄](verification.md)。自由工坊正式入口以另一個 PR 提出；公開試用站不讀取自由工坊會員或正式資料庫。
 
 沒有 SMTP、銀行、支付商、會計、物流或發票金鑰。私人資料、cookie、`.env`、本機狀態及 `.audit-tmp` 不在發布包。

@@ -257,29 +257,29 @@ test('copying a week rejects the entire batch on a later conflict and keeps canc
  const unit=(await visitor.apply('office.unit.create',{name:'合成：週班表',kind:'branch'})).result;
  const staff=(await visitor.apply('office.staff.create',{code:'SIM-WEEK',alias:'合成週班同仁',unit_id:unit})).result;
  const shift=(start_at:string,end_at:string)=>visitor.apply('office.shift.create',{unit_id:unit,staff_id:staff,start_at,end_at,break_minutes:30,note:'合成：來源班次'});
- const first=(await shift('2026-10-05T00:00:00.000Z','2026-10-05T04:00:00.000Z')).result;
- const second=(await shift('2026-10-06T00:00:00.000Z','2026-10-06T04:00:00.000Z')).result;
- const cancelled=(await shift('2026-10-07T00:00:00.000Z','2026-10-07T04:00:00.000Z')).result;
+ const first=(await shift('2020-01-06T00:00:00.000Z','2020-01-06T04:00:00.000Z')).result;
+ const second=(await shift('2020-01-07T00:00:00.000Z','2020-01-07T04:00:00.000Z')).result;
+ const cancelled=(await shift('2020-01-08T00:00:00.000Z','2020-01-08T04:00:00.000Z')).result;
  await visitor.apply('office.shift.complete',{id:second});
  await visitor.apply('office.shift.cancel',{id:cancelled});
- const conflict=(await shift('2026-10-13T00:00:00.000Z','2026-10-13T04:00:00.000Z')).result;
+ const conflict=(await shift('2020-01-14T00:00:00.000Z','2020-01-14T04:00:00.000Z')).result;
  const before=await visitor.world();
- const rejected=await visitor.command('office.shift.copy_week',{from_date:'2026-10-05',to_date:'2026-10-12'});
+ const rejected=await visitor.command('office.shift.copy_week',{from_date:'2020-01-06',to_date:'2020-01-13'});
  assert.equal(rejected.response.status,409);
  assert.equal(rejected.body.error.code,'office_time_conflict');
  assert.deepEqual(await visitor.world(),before);
  await visitor.apply('office.shift.cancel',{id:conflict});
  const ready=await visitor.world();
- const copied=await visitor.apply('office.shift.copy_week',{from_date:'2026-10-05',to_date:'2026-10-12'});
+ const copied=await visitor.apply('office.shift.copy_week',{from_date:'2020-01-06',to_date:'2020-01-13'});
  const newRows=copied.workspace.administration.shifts.filter((row:any)=>!ready.administration.shifts.some((old:any)=>old.id===row.id));
  assert.equal(newRows.length,2);
- assert.deepEqual(newRows.map((row:any)=>row.start_at),['2026-10-12T00:00:00.000Z','2026-10-13T00:00:00.000Z']);
+ assert.deepEqual(newRows.map((row:any)=>row.start_at),['2020-01-13T00:00:00.000Z','2020-01-14T00:00:00.000Z']);
  assert.ok(newRows.every((row:any)=>row.status==='scheduled'&&row.break_minutes===30&&row.id!==first&&row.id!==second));
  assert.equal(copied.workspace.version,ready.version+1);
  assert.equal(copied.workspace.administration.attendance.length,0);
  assert.deepEqual(financialState(copied.workspace),financialState(ready));
  const stable=await visitor.world();
- assert.equal((await visitor.command('office.shift.copy_week',{from_date:'2026-10-06',to_date:'2026-10-19'})).response.status,422);
+ assert.equal((await visitor.command('office.shift.copy_week',{from_date:'2020-01-07',to_date:'2020-01-20'})).response.status,422);
  assert.deepEqual(await visitor.world(),stable);
 });
 
@@ -331,6 +331,160 @@ test('foreign references and tampered administration imports are rejected atomic
   assert.deepEqual(await visitor.world(),before);
  }
  assert.deepEqual((await other.world()).administration.staff,[]);
+});
+
+test('reasoned time corrections stay atomic, retain original values and voided attendance no longer counts',async()=>{
+ const visitor=new Visitor();
+ await visitor.setup();await visitor.apply('office.enable');
+ const ids=await seedOffice(visitor,'CORRECTION');
+ await visitor.apply('office.shift.create',{
+  unit_id:ids.unit,staff_id:ids.staff,start_at:'2026-10-06T01:00:00.000Z',end_at:'2026-10-06T03:00:00.000Z'
+ });
+ await visitor.apply('office.attendance.create',{
+  unit_id:ids.unit,staff_id:ids.staff,start_at:'2026-10-06T01:00:00.000Z',end_at:'2026-10-06T03:00:00.000Z'
+ });
+ const before=await visitor.world();
+ for(const payload of [
+  {id:ids.shift,end_at:'2026-10-05T22:30:00.000Z'},
+  {id:ids.shift,reason:'',end_at:'2026-10-05T22:30:00.000Z'}
+ ]){
+  assert.equal((await visitor.command('office.shift.update',payload)).response.status,422);
+  assert.deepEqual(await visitor.world(),before);
+ }
+ const conflicting=await visitor.command('office.shift.update',{
+  id:ids.shift,reason:'合成：錯誤延長會重疊',end_at:'2026-10-06T02:00:00.000Z'
+ });
+ assert.equal(conflicting.response.status,409);
+ assert.equal(conflicting.body.error.code,'office_time_conflict');
+ assert.deepEqual(await visitor.world(),before);
+ await visitor.apply('office.shift.update',{
+  id:ids.shift,reason:'合成：補正排班結束',end_at:'2026-10-05T22:30:00.000Z'
+ });
+ await visitor.apply('office.attendance.update',{
+  id:ids.attendance,reason:'合成：補正漏記半小時',end_at:'2026-10-05T22:30:00.000Z'
+ });
+ let current=await visitor.view();
+ assert.equal(current.body.report.administration.actual_work_minutes,600);
+ const shiftChange=current.body.workspace.administration.changes.find((change:any)=>change.kind==='shift.update');
+ const actualChange=current.body.workspace.administration.changes.find((change:any)=>change.kind==='attendance.update');
+ assert.equal(shiftChange.record_id,ids.shift);
+ assert.equal(shiftChange.before.end_at,'2026-10-05T22:00:00.000Z');
+ assert.equal(shiftChange.after.end_at,'2026-10-05T22:30:00.000Z');
+ assert.equal(actualChange.reason,'合成：補正漏記半小時');
+ assert.equal(actualChange.before.end_at,'2026-10-05T22:00:00.000Z');
+ assert.equal(actualChange.after.end_at,'2026-10-05T22:30:00.000Z');
+ const corrected=current.body.workspace;
+ const actualConflict=await visitor.command('office.attendance.update',{
+  id:ids.attendance,reason:'合成：錯誤實際時段',end_at:'2026-10-06T02:00:00.000Z'
+ });
+ assert.equal(actualConflict.response.status,409);
+ assert.deepEqual(await visitor.world(),corrected);
+ await visitor.apply('office.attendance.void',{id:ids.attendance,reason:'合成：這是重複手動紀錄'});
+ current=await visitor.view();
+ assert.equal(current.body.report.administration.actual_work_minutes,120);
+ assert.equal(current.body.workspace.administration.attendance.find((entry:any)=>entry.id===ids.attendance).voided,true);
+ const voidChange=current.body.workspace.administration.changes.find((change:any)=>change.kind==='attendance.void');
+ assert.equal(voidChange.before.voided,false);
+ assert.equal(voidChange.after.voided,true);
+ assert.equal(voidChange.reason,'合成：這是重複手動紀錄');
+ await visitor.apply('office.attendance.create',{
+  staff_id:ids.staff,unit_id:ids.unit,start_at:'2026-10-05T14:00:00.000Z',
+  end_at:'2026-10-05T22:30:00.000Z',break_minutes:30,note:'合成：重新記錄有效出勤'
+ });
+ current=await visitor.view();
+ assert.equal(current.body.report.administration.actual_work_minutes,600);
+ assert.equal(current.body.workspace.administration.attendance.length,3);
+ assert.equal(current.body.workspace.generation_id,before.generation_id);
+ assert.deepEqual(financialState(current.body.workspace),financialState(before));
+ const future=(await visitor.apply('office.shift.create',{
+  staff_id:ids.staff,unit_id:ids.unit,start_at:'2100-01-01T01:00:00.000Z',end_at:'2100-01-01T03:00:00.000Z'
+ })).result;
+ const unfinished=await visitor.world();
+ const completed=await visitor.command('office.shift.complete',{id:future});
+ assert.equal(completed.response.status,409);
+ assert.equal(completed.body.error.code,'office_shift_not_finished');
+ assert.deepEqual(await visitor.world(),unfinished);
+});
+
+test('reservation corrections and notice archive restore retain history and accept an older format-one backup',async()=>{
+ const visitor=new Visitor();
+ await visitor.setup();await visitor.apply('office.enable');
+ const ids=await seedOffice(visitor,'HISTORY');
+ await visitor.apply('office.reservation.create',{
+  equipment_id:ids.equipment,staff_id:ids.staff,start_at:'2026-10-06T05:00:00.000Z',end_at:'2026-10-06T07:00:00.000Z'
+ });
+ const before=await visitor.world();
+ const rejected=await visitor.command('office.reservation.update',{
+  id:ids.reservation,reason:'合成：不能侵入另一筆借用',end_at:'2026-10-06T06:00:00.000Z'
+ });
+ assert.equal(rejected.response.status,409);
+ assert.equal(rejected.body.error.code,'office_time_conflict');
+ assert.deepEqual(await visitor.world(),before);
+ await visitor.apply('office.reservation.update',{
+  id:ids.reservation,reason:'合成：延後半小時借用',start_at:'2026-10-06T01:30:00.000Z',purpose:'合成：已補借用用途'
+ });
+ let current=await visitor.view();
+ const change=current.body.workspace.administration.changes.find((entry:any)=>entry.kind==='reservation.update');
+ assert.equal(change.record_id,ids.reservation);
+ assert.equal(change.before.start_at,'2026-10-06T01:00:00.000Z');
+ assert.equal(change.after.start_at,'2026-10-06T01:30:00.000Z');
+ assert.equal(change.reason,'合成：延後半小時借用');
+ await visitor.apply('office.notice.archive',{id:ids.notice});
+ current=await visitor.view();
+ assert.equal(current.body.report.administration.pinned_notices,0);
+ assert.equal(current.body.workspace.administration.notices.find((entry:any)=>entry.id===ids.notice).archived,true);
+ const archived=current.body.workspace;
+ assert.equal((await visitor.command('office.notice.archive',{id:ids.notice})).response.status,409);
+ assert.deepEqual(await visitor.world(),archived);
+ await visitor.apply('office.notice.restore',{id:ids.notice});
+ current=await visitor.view();
+ assert.equal(current.body.report.administration.pinned_notices,1);
+ assert.equal(current.body.workspace.administration.notices.find((entry:any)=>entry.id===ids.notice).archived,false);
+ assert.deepEqual(current.body.workspace.administration.changes.filter((entry:any)=>entry.record_id===ids.notice).map((entry:any)=>entry.kind),['notice.archive','notice.restore']);
+ assert.deepEqual(financialState(current.body.workspace),financialState(before));
+ const legacy=structuredClone(before);
+ delete legacy.administration.changes;
+ for(const attendance of legacy.administration.attendance)delete attendance.voided;
+ for(const notice of legacy.administration.notices)delete notice.archived;
+ const restored=await visitor.post('import',{workspace:legacy});
+ assert.equal(restored.response.status,200,JSON.stringify(restored.body));
+ assert.equal(restored.body.workspace.administration.format,'freedom-administration-v1');
+ assert.equal(Object.hasOwn(restored.body.workspace.administration,'changes'),false);
+ await visitor.apply('office.notice.archive',{id:ids.notice});
+ const normalized=await visitor.world();
+ assert.equal(normalized.administration.changes.length,1);
+ assert.ok(normalized.administration.attendance.every((entry:any)=>entry.voided===false));
+ assert.deepEqual(financialState(normalized),financialState(before));
+});
+
+test('store office and factory samples each initialize only an empty visitor desk once without reseeding money',async()=>{
+ const saved:{visitor:Visitor;world:any}[]=[];
+ for(const preset of ['store','office','factory']){
+  const visitor=new Visitor(),initial=await visitor.setup();
+  const business=initial.wallets.find((entry:any)=>entry.kind==='business');
+  await visitor.apply('wallet.fund',{wallet_id:business.id,amount_minor:45600});
+  await visitor.apply('customer.create',{name:'合成：樣本前顧客 '+preset});
+  await visitor.apply('office.enable');
+  const empty=await visitor.world();
+  const sample=await visitor.apply('office.demo.create',{preset,week_start:'2020-01-06'});
+  const world=sample.workspace,admin=world.administration;
+  assert.equal(world.generation_id,empty.generation_id);
+  assert.equal(world.version,empty.version+1);
+  assert.deepEqual(financialState(world),financialState(empty));
+  assert.deepEqual(world.customers,empty.customers);
+  assert.deepEqual(collections.map(name=>admin[name].length),[1,2,5,2,1,1,1,2]);
+  assert.equal(admin.requests[0].type,'purchase');
+  assert.equal(admin.requests[0].status,'draft');
+  assert.equal(admin.changes.length,0);
+  const repeated=await visitor.command('office.demo.create',{preset,week_start:'2020-01-06'});
+  assert.equal(repeated.response.status,409);
+  assert.equal(repeated.body.error.code,'office_demo_not_empty');
+  assert.deepEqual(await visitor.world(),world);
+  for(const previous of saved)assert.deepEqual(await previous.visitor.world(),previous.world);
+  saved.push({visitor,world});
+ }
+ const outsider=new Visitor();
+ assert.equal((await outsider.view()).body.workspace,null);
 });
 
 test('clear retires administration with its generation and a replay cannot resurrect its data',async()=>{

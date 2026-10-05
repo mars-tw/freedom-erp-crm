@@ -12,7 +12,7 @@ test('enterprise blueprint distinguishes the real SIM scope from design and pres
  for(const module of ['enterprise','hr','scheduling','attendance','payroll','treasury','accounting','tax','invoices']){
   await page.locator(`#mindmap-nodes [data-map-module="${module}"]`).click();await expect(page.locator('#module-detail')).toHaveAttribute('data-selected-module',module);await expect(page.locator('#module-detail')).toContainText('規劃中');await expect(page.locator('#module-detail')).toContainText('設計預覽');await expect(page.getByTestId('detail-workflow').locator('li')).toHaveCount(3);
  }
- await page.screenshot({path:'test-results/enterprise-blueprint-desktop.png',fullPage:true});
+ await page.screenshot({path:test.info().outputPath('enterprise-blueprint-desktop.png'),fullPage:true});
  const after=await currentView(page);expect(after.workspace).toEqual(before.workspace);expect(after.version).toBe(before.version);expect(writes).toEqual([]);
 });
 
@@ -33,5 +33,5 @@ test('320px reduced-motion design preview contains its controls and static polic
  for(const tab of ['catalog','flow','dependencies','roadmap','mindmap']){await page.locator('#tab-'+tab).click();await expect(page.locator('#panel-'+tab)).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);}
  await page.locator('#mindmap-nodes [data-map-module="payroll"]').focus();await page.keyboard.press('Enter');await expect(page.locator('#module-detail')).toHaveAttribute('data-selected-module','payroll');await expect(page.locator('#module-detail')).toContainText('SIM');
  await expect(page.locator('#module-detail')).toBeFocused();await page.locator('#module-detail [data-detail-return]').click();await expect(page.locator('#tab-mindmap')).toBeFocused();
- expect(await page.locator('form').count()).toBe(0);expect(await page.locator('script[src]').count()).toBe(0);await page.screenshot({path:'test-results/enterprise-blueprint-mobile-320.png',fullPage:true});expect(writes).toEqual([]);
+ expect(await page.locator('form').count()).toBe(0);expect(await page.locator('script[src]').count()).toBe(0);await page.screenshot({path:test.info().outputPath('enterprise-blueprint-mobile-320.png'),fullPage:true});expect(writes).toEqual([]);
 });

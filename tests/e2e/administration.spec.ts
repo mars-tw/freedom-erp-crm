@@ -1,4 +1,7 @@
 import {test,expect,type Page,type Locator} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+import {randomUUID,createHash} from 'node:crypto';
+import {Buffer as NodeBuffer} from 'node:buffer';
 
 test.use({timezoneId:'Asia/Taipei'});
 const company='合成：行政工作台驗收';
@@ -43,6 +46,7 @@ async function start(page:Page,industry='零售商店'){
   await save(page);
  }
  await expect(page.getByTestId('office-tab-shifts')).toBeVisible();
+ await tab(page,'shifts');
  const day=await page.getByTestId('office-week-day').first().getAttribute('data-date');
  expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
  return {initial,day:day!};
@@ -90,6 +94,24 @@ async function reservationForm(page:Page,equipment:string,staff:string,start:str
  await dialog(page).getByTestId('office-field-end_at').fill(end);
  await dialog(page).getByTestId('office-field-purpose').fill('合成：週會測試');
 }
+function localTime(iso:string,extraMinutes=0){
+ return new Date(Date.parse(iso)+(480+extraMinutes)*60000).toISOString().slice(0,16);
+}
+function worldHash(world:any){
+ return createHash('sha256').update(JSON.stringify(world),'utf8').digest('hex');
+}
+async function seedDemo(page:Page,preset:string,week:string){
+ const before=(await view(page)).workspace;
+ await page.getByTestId('office-seed-demo').click();
+ await dialog(page).getByTestId('office-field-preset').selectOption(preset);
+ await dialog(page).getByTestId('office-field-week_start').fill(week);
+ await save(page);
+ const world=(await view(page)).workspace;
+ expect(world.generation_id).toBe(before.generation_id);
+ expect(financialState(world)).toEqual(financialState(before));
+ await expect(page.getByTestId('office-seed-demo')).toBeDisabled();
+ return {before,world};
+}
 
 test('existing retail enables an empty personal administration desk without replacing legacy data',async({page})=>{
  const {initial}=await start(page);
@@ -115,7 +137,10 @@ test('existing retail enables an empty personal administration desk without repl
 
 test('cross-night roster and manual attendance remain separate and both reject duplicate staff intervals',async({page})=>{
  const {day}=await start(page),{staff}=await people(page);
- const startAt=day+'T22:00',endAt=dateAfter(day)+'T06:00';
+ await tab(page,'shifts');
+ await page.getByRole('button',{name:'前一週',exact:true}).click();
+ const pastDay=dateAfter(day,-7);
+ const startAt=pastDay+'T22:00',endAt=dateAfter(pastDay)+'T06:00';
  await timeForm(page,'shift',staff,startAt,endAt);await save(page);
  let world=(await view(page)).workspace;
  expect(world.administration.shifts).toHaveLength(1);
@@ -146,7 +171,7 @@ test('cross-night roster and manual attendance remain separate and both reject d
  expect(world.administration.attendance).toEqual(actual.administration.attendance);
  await expect(page.getByTestId('office-message')).toContainText('結束班次');
  await expect(page.getByTestId('office-message')).not.toContainText(shift.id);
- await page.screenshot({path:'test-results/administration-desktop.png',fullPage:true});
+ await page.screenshot({path:test.info().outputPath('administration-desktop.png'),fullPage:true});
 });
 
 test('expense and leave requests return, resubmit, prepare or withdraw without approval or financial writes',async({page})=>{
@@ -255,6 +280,38 @@ test('notice search is literal and editing or clearing a Taipei deadline survive
  await page.reload();await page.getByTestId('office-nav').click();await tab(page,'notices');
  await expect(row(page,original.id)).toContainText('日期已取消');
  expect((await view(page)).workspace).toEqual(stable);
+ const lostTitle='合成：行政回應遺失仍可確認',keys:string[]=[];
+ let acknowledged:any;
+ page.on('request',request=>{
+  if(request.method()==='POST'&&new URL(request.url()).pathname==='/api/workspace/commands')
+   keys.push(request.headers()['idempotency-key']);
+ });
+ await page.route('**/api/workspace/commands',async route=>{
+  const response=await route.fetch(),body=await response.json();
+  expect(response.status(),JSON.stringify(body)).toBe(200);
+  acknowledged=body.workspace;
+  await route.abort('failed');
+ },{times:1});
+ await page.getByTestId('office-add-notice').click();
+ await dialog(page).getByTestId('office-field-title').fill(lostTitle);
+ await page.getByTestId('office-save').click();
+ await expect(dialog(page)).toBeVisible();
+ await expect(page.getByTestId('office-save')).toBeDisabled();
+ await expect(page.getByTestId('office-cancel')).toBeEnabled();
+ await expect(page.getByTestId('office-cancel')).toHaveText('關閉並確認原操作結果');
+ await page.getByTestId('office-cancel').click();
+ await expect(dialog(page)).toHaveCount(0);
+ await expect(page.getByRole('alert').filter({hasText:'上次操作的結果尚未確認'})).toBeVisible();
+ const saved=(await view(page)).workspace;
+ expect(saved.version).toBe(stable.version+1);
+ expect(saved.generation_id).toBe(stable.generation_id);
+ expect(worldHash(saved)).toBe(worldHash(acknowledged));
+ expect(saved.administration.notices.filter((entry:any)=>entry.title===lostTitle)).toHaveLength(1);
+ await page.getByRole('button',{name:'確認原操作結果',exact:true}).click();
+ await expect(page.getByRole('status').filter({hasText:'已確認並恢復原操作。'})).toBeVisible();
+ expect(keys).toHaveLength(2);
+ expect(keys[1]).toBe(keys[0]);
+ expect(worldHash((await view(page)).workspace)).toBe(worldHash(saved));
 });
 
 test('the seven legacy modules remain available alongside administration and customer edits keep their source',async({page})=>{
@@ -308,5 +365,274 @@ test('320px dark compact desk and keyboard dialogs remain contained and cancel w
  await expect(opener).toBeFocused();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
  expect((await view(page)).workspace).toEqual(stable);
- await page.screenshot({path:'test-results/administration-dark-mobile-320.png',fullPage:true});
+ await page.screenshot({path:test.info().outputPath('administration-dark-mobile-320.png'),fullPage:true});
+});
+
+test('store onboarding continues through corrections void replacement and scoped CSV print without financial effects',async({page})=>{
+ test.setTimeout(90000);
+ const {day}=await start(page);
+ await expect(page.getByTestId('office-onboarding')).toBeVisible();
+ await expect(page.getByTestId('office-guide-staff')).toBeDisabled();
+ const {before,world:sample}=await seedDemo(page,'store',dateAfter(day,-7));
+ await expect(page.getByTestId('office-week-day').first()).toHaveAttribute('data-date',dateAfter(day,-7));
+ const shift=sample.administration.shifts[0],actual=sample.administration.attendance[0];
+ await row(page,shift.id).getByTestId('office-edit-shift').click();
+ await dialog(page).getByTestId('office-field-end_at').fill(localTime(shift.end_at,30));
+ await page.getByTestId('office-save').click();
+ await expect(dialog(page)).toBeVisible();
+ expect((await view(page)).workspace).toEqual(sample);
+ await page.keyboard.press('Control+k');
+ await expect(page.getByTestId('workspace-search-dialog')).toHaveCount(0);
+ await expect(dialog(page)).toBeVisible();
+ await dialog(page).getByTestId('office-field-reason').fill('合成：調整店務班次結束時間');
+ await save(page);
+ let state=(await view(page)).workspace;
+ expect(state.administration.changes.find((change:any)=>change.kind==='shift.update').before.end_at).toBe(shift.end_at);
+ expect(state.administration.changes.find((change:any)=>change.kind==='shift.update').after.end_at).toBe(new Date(Date.parse(shift.end_at)+1800000).toISOString());
+ await tab(page,'attendance');
+ await row(page,actual.id).getByTestId('office-edit-attendance').click();
+ await dialog(page).getByTestId('office-field-end_at').fill(localTime(actual.end_at,30));
+ await dialog(page).getByTestId('office-field-reason').fill('合成：補正漏記半小時');
+ await save(page);
+ let snapshot=await view(page);
+ const corrected=snapshot.workspace.administration.attendance.find((entry:any)=>entry.id===actual.id);
+ const correctedMinutes=(Date.parse(corrected.end_at)-Date.parse(corrected.start_at))/60000-corrected.break_minutes;
+ const previousTotal=snapshot.report.administration.actual_work_minutes;
+ const history=row(page,actual.id).getByTestId('office-record-history');
+ await history.locator('summary').click();
+ await expect(history).toContainText('原值');
+ await expect(history).toContainText('更正後');
+ await expect(history).toContainText('補正漏記半小時');
+ await row(page,actual.id).getByTestId('office-void-attendance').click();
+ await dialog(page).getByTestId('office-field-reason').fill('合成：原紀錄重複，需要重新登錄');
+ await save(page);
+ snapshot=await view(page);
+ expect(snapshot.workspace.administration.attendance.find((entry:any)=>entry.id===actual.id).voided).toBe(true);
+ expect(snapshot.report.administration.actual_work_minutes).toBe(previousTotal-correctedMinutes);
+ await expect(row(page,actual.id)).toContainText('已作廢');
+ await timeForm(page,'attendance',actual.staff_id,localTime(corrected.start_at),localTime(corrected.end_at));
+ await dialog(page).getByTestId('office-field-break_minutes').fill(String(corrected.break_minutes));
+ await dialog(page).getByTestId('office-field-note').fill('=SUM(1,2)');
+ await save(page);
+ snapshot=await view(page);state=snapshot.workspace;
+ expect(snapshot.report.administration.actual_work_minutes).toBe(previousTotal);
+ expect(state.administration.attendance).toHaveLength(3);
+ expect(state.administration.attendance.filter((entry:any)=>!entry.voided)).toHaveLength(2);
+ expect(financialState(state)).toEqual(financialState(before));
+ await page.getByTestId('office-attendance-status-filter').selectOption('active');
+ const downloadPromise=page.waitForEvent('download');
+ await page.getByTestId('office-export-csv').click();
+ const download=await downloadPromise,path=await download.path();
+ expect(download.suggestedFilename()).toMatch(/^freedom-administration-attendance-.*\.csv$/);
+ expect(path).toBeTruthy();
+ const csv=await readFile(path!,'utf8');
+ expect(csv.charCodeAt(0)).toBe(0xfeff);
+ expect(csv).toContain('Asia/Taipei');
+ expect(csv).toContain('SIM');
+ expect(csv).toContain("'=SUM(1,2)");
+ expect(csv.trim().split(/\r?\n/)).toHaveLength(3);
+ await page.evaluate(()=>{(window as any).__officePrintCalls=0;window.print=()=>{(window as any).__officePrintCalls++;};});
+ await page.getByTestId('office-print').click();
+ expect(await page.evaluate(()=>(window as any).__officePrintCalls)).toBe(1);
+ await page.emulateMedia({media:'print'});
+ const sheet=page.getByTestId('office-print-sheet');
+ await expect(sheet).toBeVisible();
+ await expect(sheet.locator('tbody tr')).toHaveCount(2);
+ await expect(sheet).toContainText('不作薪資或法定工時依據');
+ await page.emulateMedia({media:'screen'});
+ expect((await view(page)).workspace).toEqual(state);
+});
+
+test('office sample closes reservation correction conflict return rebooking and notice archive restore with reasons',async({page})=>{
+ test.setTimeout(90000);
+ const {day}=await start(page),{before,world:sample}=await seedDemo(page,'office',dateAfter(day,-7));
+ const original=sample.administration.reservations[0],notice=sample.administration.notices.find((entry:any)=>entry.pinned);
+ await tab(page,'reservations');
+ await row(page,original.id).getByTestId('office-edit-reservation').click();
+ await dialog(page).getByTestId('office-field-start_at').fill(localTime(original.start_at,30));
+ await dialog(page).getByTestId('office-field-end_at').fill(localTime(original.end_at,30));
+ await dialog(page).getByTestId('office-field-reason').fill('合成：會議借用延後半小時');
+ await save(page);
+ let current=(await view(page)).workspace;
+ const corrected=current.administration.reservations.find((entry:any)=>entry.id===original.id);
+ const change=current.administration.changes.find((entry:any)=>entry.kind==='reservation.update');
+ expect(change.before.start_at).toBe(original.start_at);
+ expect(change.after.start_at).toBe(corrected.start_at);
+ await reservationForm(page,original.equipment_id,original.staff_id,localTime(original.end_at,60),localTime(original.end_at,180));
+ await save(page);
+ current=(await view(page)).workspace;
+ await row(page,original.id).getByTestId('office-edit-reservation').click();
+ await dialog(page).getByTestId('office-field-end_at').fill(localTime(original.end_at,120));
+ await dialog(page).getByTestId('office-field-reason').fill('合成：這筆錯誤延長會重疊');
+ await page.getByTestId('office-save').click();
+ await expect(page.getByTestId('office-error')).toBeVisible();
+ expect((await view(page)).workspace).toEqual(current);
+ await page.getByTestId('office-cancel').click();
+ await confirmRow(page,row(page,original.id),'return-reservation');
+ await expect(row(page,original.id)).toContainText('已歸還');
+ await reservationForm(page,original.equipment_id,original.staff_id,localTime(corrected.start_at),localTime(corrected.end_at));
+ await save(page);
+ await tab(page,'notices');
+ await confirmRow(page,row(page,notice.id),'archive-notice');
+ expect((await view(page)).report.administration.pinned_notices).toBe(0);
+ await page.getByTestId('office-notice-state-filter').selectOption('active');
+ await expect(row(page,notice.id)).toHaveCount(0);
+ await page.getByTestId('office-notice-state-filter').selectOption('archived');
+ await expect(row(page,notice.id)).toBeVisible();
+ const archiveHistory=row(page,notice.id).getByTestId('office-record-history');
+ await archiveHistory.locator('summary').click();
+ await expect(archiveHistory).toContainText('封存公告');
+ await confirmRow(page,row(page,notice.id),'restore-notice');
+ const final=(await view(page)).workspace;
+ expect(final.administration.notices.find((entry:any)=>entry.id===notice.id).archived).toBe(false);
+ expect(final.administration.changes.filter((entry:any)=>entry.record_id===notice.id).map((entry:any)=>entry.kind)).toEqual(['notice.archive','notice.restore']);
+ expect(final.administration.reservations.filter((entry:any)=>entry.status==='reserved')).toHaveLength(2);
+ expect(financialState(final)).toEqual(financialState(before));
+ await page.reload();await page.getByTestId('office-nav').click();await tab(page,'notices');
+ await expect(row(page,notice.id)).toBeVisible();
+ expect((await view(page)).workspace).toEqual(final);
+});
+
+test('a real browser exports and uploads a backup over 32 KB only after confirmation and restores all records',async({page})=>{
+ test.setTimeout(120000);
+ await start(page,'一般企業');
+ let current=await view(page);
+ // Real API writes provide backup volume; export, confirmation, cancellation and
+ // restore use the actual browser controls rather than a mocked import response.
+ for(let index=0;index<18;index++){
+  const response=await page.request.post('/api/workspace/commands',{headers:{
+   Origin:new URL(page.url()).origin,'x-csrf-token':current.csrf,
+   'Idempotency-Key':randomUUID(),'If-Match-Version':String(current.version)
+  },data:{action:'office.notice.create',payload:{title:'合成：備份公告 '+index,body:'合成備份資料'.repeat(200)}}});
+  const result=await response.json();
+  expect(response.status(),JSON.stringify(result)).toBe(200);
+  current={...current,...result};
+ }
+ await page.reload();await nav(page).getByRole('button',{name:'設定與資料',exact:true}).click();
+ const downloadPromise=page.waitForEvent('download');
+ await page.getByTestId('workspace-backup-export').click();
+ const download=await downloadPromise,path=await download.path();
+ expect(path).toBeTruthy();
+ const bytes=await readFile(path!),source=JSON.parse(new TextDecoder().decode(bytes));
+ expect(bytes.length).toBeGreaterThan(32768);
+ expect(source.administration.notices).toHaveLength(18);
+ await page.getByTestId('office-nav').click();await tab(page,'notices');await page.getByTestId('office-add-notice').click();
+ await dialog(page).getByTestId('office-field-title').fill('合成：還原前新增，備份內沒有');await save(page);
+ const newer=(await view(page)).workspace,requests:string[]=[];
+ page.on('request',request=>{if(request.method()==='POST'&&request.url().includes('/api/workspace/import'))requests.push(new URL(request.url()).pathname);});
+ await nav(page).getByRole('button',{name:'設定與資料',exact:true}).click();
+ const upload={name:'synthetic-large-backup.json',mimeType:'application/json',buffer:bytes};
+ await page.getByTestId('workspace-backup-file').setInputFiles(upload);
+ await expect(page.getByTestId('workspace-backup-preview')).toBeVisible();
+ expect((await view(page)).workspace).toEqual(newer);
+ expect(requests).toEqual([]);
+ await page.getByTestId('workspace-backup-preview-cancel').click();
+ expect((await view(page)).workspace).toEqual(newer);
+ await page.getByTestId('workspace-backup-file').setInputFiles(upload);
+ await page.getByTestId('workspace-backup-restore').click();
+ await expect(page.getByRole('status').filter({hasText:'備份已完整檢查並還原'})).toBeVisible({timeout:60000});
+ expect(requests).toContain('/api/workspace/import/begin');
+ expect(requests).toContain('/api/workspace/import/part');
+ expect(requests).toContain('/api/workspace/import/commit');
+ const restored=(await view(page)).workspace;
+ expect(restored.generation_id).not.toBe(newer.generation_id);
+ expect(restored.version).toBe(newer.version+1);
+ expect(worldHash(restored)).toBe(worldHash({...source,generation_id:restored.generation_id,version:restored.version}));
+ await page.reload();await page.getByTestId('office-nav').click();await tab(page,'notices');
+ await page.getByTestId('office-search').fill('還原前新增');
+ await expect(page.getByTestId('office-notice')).toHaveCount(0);
+ expect(worldHash((await view(page)).workspace)).toBe(worldHash(restored));
+ await page.getByTestId('office-search').fill('');
+ await page.getByTestId('office-add-notice').click();
+ await dialog(page).getByTestId('office-field-title').fill('合成：測試遺失還原回應');await save(page);
+ const beforeLost=(await view(page)).workspace,commitKeys:string[]=[];
+ let acknowledged:any;
+ page.on('request',request=>{
+  if(request.method()==='POST'&&new URL(request.url()).pathname==='/api/workspace/import/commit')
+   commitKeys.push(request.headers()['idempotency-key']);
+ });
+ await page.route('**/api/workspace/import/commit',async route=>{
+  const response=await route.fetch(),body=await response.json();
+  expect(response.status(),JSON.stringify(body)).toBe(200);
+  acknowledged=body.workspace;
+  await route.abort('failed');
+ },{times:1});
+ await nav(page).getByRole('button',{name:'設定與資料',exact:true}).click();
+ await page.getByTestId('workspace-backup-file').setInputFiles(upload);
+ await page.getByTestId('workspace-backup-restore').click();
+ await expect(page.getByRole('alert').filter({hasText:'上次操作的結果尚未確認'})).toBeVisible({timeout:60000});
+ const saved=(await view(page)).workspace;
+ expect(acknowledged).toBeTruthy();
+ expect(saved.generation_id).not.toBe(beforeLost.generation_id);
+ expect(saved.version).toBe(beforeLost.version+1);
+ expect(worldHash(saved)).toBe(worldHash(acknowledged));
+ expect(commitKeys).toHaveLength(1);
+ await page.route('**/api/workspace/import/commit',route=>route.fulfill({
+  status:429,contentType:'application/json',
+  body:JSON.stringify({error:{code:'rate_limit',message:'合成：暫時頻率限制',retry_after_ms:1}})
+ }),{times:1});
+ await page.getByRole('button',{name:'確認原操作結果',exact:true}).click();
+ await expect(page.getByRole('alert').filter({hasText:'上次操作的結果尚未確認'})).toBeVisible();
+ expect(commitKeys).toHaveLength(2);
+ expect(commitKeys[1]).toBe(commitKeys[0]);
+ expect(worldHash((await view(page)).workspace)).toBe(worldHash(saved));
+ await page.getByRole('button',{name:'確認原操作結果',exact:true}).click();
+ await expect(page.getByRole('status').filter({hasText:'已確認並恢復原操作。'})).toBeVisible();
+ expect(commitKeys).toHaveLength(3);
+ expect(commitKeys[2]).toBe(commitKeys[0]);
+ const recovered=(await view(page)).workspace;
+ expect(recovered.generation_id).toBe(saved.generation_id);
+ expect(recovered.version).toBe(saved.version);
+ expect(worldHash(recovered)).toBe(worldHash(saved));
+});
+
+test('cancelling after the server accepted begin removes the upload and rejects delayed original-key replay',async({page})=>{
+ test.setTimeout(90000);
+ await start(page,'一般企業');
+ let current=await view(page);
+ for(let index=0;index<10;index++){
+  const response=await page.request.post('/api/workspace/commands',{headers:{
+   Origin:new URL(page.url()).origin,'x-csrf-token':current.csrf,
+   'Idempotency-Key':randomUUID(),'If-Match-Version':String(current.version)
+  },data:{action:'office.notice.create',payload:{title:'合成：取消競態公告 '+index,body:'合成備份資料'.repeat(200)}}});
+  const result=await response.json();
+  expect(response.status(),JSON.stringify(result)).toBe(200);
+  current={...current,...result};
+ }
+ const original=current.workspace,bytes=new TextEncoder().encode(JSON.stringify(original));
+ expect(bytes.length).toBeGreaterThan(32768);
+ let release!:()=>void,accepted!:()=>void,beginKey='',manifest:any;
+ const hold=new Promise<void>(resolve=>{release=resolve;});
+ const begun=new Promise<void>(resolve=>{accepted=resolve;});
+ await page.route('**/api/workspace/import/begin',async route=>{
+  const response=await route.fetch();
+  expect(response.status()).toBe(200);
+  beginKey=route.request().headers()['idempotency-key'];
+  manifest=route.request().postDataJSON();
+  accepted();
+  await hold;
+  try{await route.abort('failed');}catch{/* The browser may already have aborted its waiting request. */}
+ },{times:1});
+ await page.reload();await nav(page).getByRole('button',{name:'設定與資料',exact:true}).click();
+ await page.getByTestId('workspace-backup-file').setInputFiles({
+  name:'synthetic-cancel-race.json',mimeType:'application/json',buffer:NodeBuffer.from(bytes)
+ });
+ await page.getByTestId('workspace-backup-restore').click();
+ await begun;
+ await expect(page.getByTestId('workspace-backup-cancel')).toBeVisible();
+ await page.getByTestId('workspace-backup-cancel').click();
+ release();
+ await expect(page.getByRole('status').filter({hasText:'已取消備份傳輸'})).toBeVisible();
+ expect((await view(page)).workspace).toEqual(original);
+ const status=await (await page.request.get('/api/workspace/import/status')).json();
+ expect(status.stage).toBe(null);
+ const fresh=await view(page);
+ const replay=await page.request.post('/api/workspace/import/begin',{headers:{
+  Origin:new URL(page.url()).origin,'x-csrf-token':fresh.csrf,
+  'Idempotency-Key':beginKey,'If-Match-Version':String(fresh.version)
+ },data:manifest});
+ const rejected=await replay.json();
+ expect(replay.status()).toBe(409);
+ expect(rejected.error.code).toBe('import_cancelled');
+ expect((await view(page)).workspace).toEqual(original);
 });

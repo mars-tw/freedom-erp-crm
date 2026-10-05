@@ -4,16 +4,19 @@ import {ok} from './problem.js';
 type Stamp = {id:string; created_at:string; updated_at:string};
 export type RequestStatus = 'draft'|'submitted'|'returned'|'withdrawn'|'prepared_unreviewed';
 export type RequestTransition = {status:RequestStatus; at:string; note:string};
+export type AdministrationChangeKind = 'shift.update'|'attendance.update'|'attendance.void'|'reservation.update'|'notice.archive'|'notice.restore';
+export type AdministrationChange = {id:string;kind:AdministrationChangeKind;record_id:string;at:string;reason:string;before:Record<string,unknown>;after:Record<string,unknown>};
 export type Administration = {
   format:'freedom-administration-v1';
   units:(Stamp & {name:string; kind:'branch'|'department'; parent_id:string|null; active:boolean})[];
   staff:(Stamp & {code:string; alias:string; unit_id:string; role_label:string; status:'active'|'inactive'})[];
   shifts:(Stamp & {staff_id:string; unit_id:string; start_at:string; end_at:string; break_minutes:number; note:string; status:'scheduled'|'completed'|'cancelled'})[];
-  attendance:(Stamp & {staff_id:string; unit_id:string; start_at:string; end_at:string; break_minutes:number; note:string})[];
+  attendance:(Stamp & {staff_id:string; unit_id:string; start_at:string; end_at:string; break_minutes:number; note:string; voided?:boolean})[];
   requests:(Stamp & {type:'leave'|'purchase'|'expense'|'general'; staff_id:string|null; unit_id:string; title:string; description:string; amount_minor:number; currency:'SIM'; start_at:string|null; end_at:string|null; status:RequestStatus; processing_note:string; transitions:RequestTransition[]})[];
   equipment:(Stamp & {code:string; name:string; unit_id:string; state:'available'|'maintenance'|'retired'})[];
   reservations:(Stamp & {equipment_id:string; staff_id:string; start_at:string; end_at:string; purpose:string; status:'reserved'|'returned'|'cancelled'})[];
-  notices:(Stamp & {title:string; body:string; unit_id:string|null; pinned:boolean; due_at:string|null})[];
+  notices:(Stamp & {title:string; body:string; unit_id:string|null; pinned:boolean; due_at:string|null; archived?:boolean})[];
+  changes?:AdministrationChange[];
 };
 
 const lists = ['units','staff','shifts','attendance','requests','equipment','reservations','notices'] as const;
@@ -36,10 +39,13 @@ const actions:Record<string,{required:string[]; optional?:string[]}> = {
   'office.staff.create':{required:['code','alias','unit_id'],optional:['role_label']},
   'office.staff.update':{required:['id'],optional:['alias','role_label','status']},
   'office.shift.create':{required:['staff_id','unit_id','start_at','end_at'],optional:['break_minutes','note']},
+  'office.shift.update':{required:['id','reason'],optional:['start_at','end_at','break_minutes','note']},
   'office.shift.cancel':{required:['id']},
   'office.shift.complete':{required:['id']},
   'office.shift.copy_week':{required:['from_date','to_date']},
   'office.attendance.create':{required:['staff_id','unit_id','start_at','end_at'],optional:['break_minutes','note']},
+  'office.attendance.update':{required:['id','reason'],optional:['start_at','end_at','break_minutes','note']},
+  'office.attendance.void':{required:['id','reason']},
   'office.request.create':{required:['type','unit_id','title'],optional:['staff_id','description','amount_minor','start_at','end_at']},
   'office.request.update':{required:['id'],optional:['title','description','amount_minor','start_at','end_at']},
   'office.request.submit':{required:['id']},
@@ -49,14 +55,18 @@ const actions:Record<string,{required:string[]; optional?:string[]}> = {
   'office.equipment.create':{required:['code','name','unit_id']},
   'office.equipment.update':{required:['id'],optional:['name','state']},
   'office.reservation.create':{required:['equipment_id','staff_id','start_at','end_at'],optional:['purpose']},
+  'office.reservation.update':{required:['id','reason'],optional:['start_at','end_at','purpose']},
   'office.reservation.return':{required:['id']},
   'office.reservation.cancel':{required:['id']},
   'office.notice.create':{required:['title'],optional:['body','unit_id','pinned','due_at']},
   'office.notice.update':{required:['id'],optional:['title','body','unit_id','pinned','due_at']},
+  'office.notice.archive':{required:['id']},
+  'office.notice.restore':{required:['id']},
+  'office.demo.create':{required:['preset','week_start']},
 };
 
 export function createAdministration():Administration {
-  return {format:'freedom-administration-v1',units:[],staff:[],shifts:[],attendance:[],requests:[],equipment:[],reservations:[],notices:[]};
+  return {format:'freedom-administration-v1',units:[],staff:[],shifts:[],attendance:[],requests:[],equipment:[],reservations:[],notices:[],changes:[]};
 }
 
 function object(value:any) {
@@ -165,12 +175,84 @@ function requestFields(a:Administration,row:Administration['requests'][number]) 
   if(row.status==='submitted'){activeUnit(a,row.unit_id);if(row.staff_id!==null)activeStaff(a,row.staff_id,row.unit_id);}
 }
 
+type TrackedCollection = 'shifts'|'attendance'|'reservations'|'notices';
+const changeCollections:Record<AdministrationChangeKind,TrackedCollection>={
+  'shift.update':'shifts','attendance.update':'attendance','attendance.void':'attendance',
+  'reservation.update':'reservations','notice.archive':'notices','notice.restore':'notices',
+};
+function rowStamp(row:any,name:typeof lists[number]) {
+  const optional=name==='attendance'?['voided']:name==='notices'?['archived']:[];
+  keys(row,[...stampKeys,...rowKeys[name]],optional);uuid(row.id);
+  ok(instant(row.updated_at)>=instant(row.created_at),422,'office_time_invalid','更新時間不可早於建立時間');
+  for(const flag of optional)if(Object.hasOwn(row,flag))ok(typeof row[flag]==='boolean',422,'office_fields_invalid','封存或作廢狀態須為布林值');
+}
+function trackedRow(a:Administration,name:TrackedCollection,row:any,historical=false) {
+  rowStamp(row,name);
+  if(name==='shifts' || name==='attendance'){
+    const staff=rowById(a.staff,row.staff_id);rowById(a.units,row.unit_id);
+    ok(staff.unit_id===row.unit_id,422,'office_unit_mismatch','排班或出勤的示範員工與單位不符');interval(row,true);text(row.note,1000,true);
+    if(name==='shifts'){enumValue(row.status,['scheduled','completed','cancelled']);if(!historical && row.status==='scheduled'){activeUnit(a,row.unit_id);activeStaff(a,row.staff_id,row.unit_id);}}
+  }else if(name==='reservations'){
+    const equipment=rowById(a.equipment,row.equipment_id);rowById(a.staff,row.staff_id);interval(row,false,31*24*60);text(row.purpose,1000,true);enumValue(row.status,['reserved','returned','cancelled']);
+    if(!historical && row.status==='reserved'){ok(equipment.state==='available',409,'office_equipment_unavailable','設備目前不可借用');activeUnit(a,equipment.unit_id);activeStaff(a,row.staff_id);}
+  }else{
+    text(row.title);text(row.body,2000,true);if(row.unit_id!==null)rowById(a.units,row.unit_id);ok(typeof row.pinned==='boolean',422,'office_fields_invalid','公告置頂狀態不符');if(row.due_at!==null)instant(row.due_at);
+  }
+}
+function sameFields(before:any,after:any,except:string[]=[]) {
+  const all=new Set([...Object.keys(before),...Object.keys(after)]);
+  const value=(row:any,key:string)=>['voided','archived'].includes(key)?row[key]??false:row[key];
+  return [...all].every(key=>except.includes(key) || value(before,key)===value(after,key));
+}
+function validateChanges(a:Administration,ids:Set<string>) {
+  if(!Object.hasOwn(a,'changes'))return;
+  ok(Array.isArray(a.changes) && a.changes.length<=200,422,'office_change_limit','更正與封存紀錄最多 200 筆');
+  let previousAt=-Infinity;
+  const latest=new Map<string,AdministrationChange>();
+  for(const change of a.changes){
+    keys(change,['id','kind','record_id','at','reason','before','after']);uuid(change.id);uuid(change.record_id);text(change.reason,1000);
+    ok(Object.hasOwn(changeCollections,change.kind),422,'office_change_invalid','更正紀錄種類不符');
+    const id=change.id.toLowerCase();ok(!ids.has(id),422,'id_collision','更正紀錄識別重複');ids.add(id);
+    const name=changeCollections[change.kind],current=rowById(a[name] as {id:string;updated_at:string;created_at:string}[],change.record_id);
+    trackedRow(a,name,change.before,true);trackedRow(a,name,change.after,true);
+    const before:any=change.before,after:any=change.after,at=instant(change.at);
+    ok(at>=previousAt && instant(before.updated_at)<=at && instant(after.updated_at)===at && at<=instant(current.updated_at),422,'office_change_invalid','更正紀錄時間不符');previousAt=at;
+    ok(before.id===change.record_id && after.id===change.record_id && before.created_at===current.created_at && after.created_at===current.created_at,422,'office_change_invalid','更正紀錄來源不符');
+    for(const field of ['staff_id','equipment_id',...(name==='notices'?[]:['unit_id'])])if(field in before)ok(before[field]===(current as any)[field] && after[field]===(current as any)[field],422,'office_change_invalid','更正紀錄不得改變所屬對象');
+    let allowed:string[];
+    if(change.kind==='shift.update'){
+      ok(before.status==='scheduled' && after.status==='scheduled',422,'office_change_invalid','只有已排定班次可更正');allowed=['start_at','end_at','break_minutes','note','updated_at'];
+    }else if(change.kind==='attendance.update'){
+      ok(before.voided!==true && after.voided!==true,422,'office_change_invalid','已作廢出勤不可更正');allowed=['start_at','end_at','break_minutes','note','updated_at'];
+    }else if(change.kind==='attendance.void'){
+      ok(before.voided!==true && after.voided===true,422,'office_change_invalid','出勤作廢紀錄不符');allowed=['voided','updated_at'];
+    }else if(change.kind==='reservation.update'){
+      ok(before.status==='reserved' && after.status==='reserved',422,'office_change_invalid','只有借用中的預約可更正');allowed=['start_at','end_at','purpose','updated_at'];
+    }else{
+      const archive=change.kind==='notice.archive';
+      ok((before.archived===true)!==archive && (after.archived===true)===archive,422,'office_change_invalid','公告封存紀錄不符');allowed=['archived','updated_at'];
+    }
+    ok(sameFields(before,after,allowed) && !sameFields(before,after,['updated_at']),422,'office_change_invalid','更正紀錄包含不可修改欄位或沒有變更');
+    const prior=latest.get(change.record_id);
+    if(prior){
+      const intervening=name==='notices'?['title','body','unit_id','pinned','due_at','updated_at']:['updated_at'];
+      ok(sameFields(prior.after,before,intervening) && instant(before.updated_at)>=instant(prior.at),422,'office_change_invalid','更正紀錄前後不連續');
+    }
+    latest.set(change.record_id,change);
+  }
+  for(const change of latest.values()){
+    const name=changeCollections[change.kind],current=rowById(a[name] as {id:string}[],change.record_id);
+    const subsequentlyMutable=name==='notices'?['title','body','unit_id','pinned','due_at','updated_at']:name==='attendance'?[]:['status','updated_at'];
+    ok(sameFields(change.after,current,subsequentlyMutable),422,'office_change_invalid','最新更正紀錄與現有資料不符');
+  }
+}
+
 export function validateAdministration(world:any):void {
   const enabled = Array.isArray(world.modules) && world.modules.includes('administration');
   if(!Object.hasOwn(world,'administration')){ok(!enabled,422,'office_schema_invalid','啟用行政模組須有行政資料');return;}
   ok(enabled,422,'office_schema_invalid','未啟用行政模組不可匯入行政資料');
   const a:Administration = world.administration;
-  keys(a,['format',...lists]);
+  keys(a,['format',...lists],['changes']);
   ok(a.format==='freedom-administration-v1',422,'office_schema_invalid','行政資料版本不符');
   const ids = new Set<string>();
   const legacyIds = (value:any):void=>{
@@ -183,9 +265,8 @@ export function validateAdministration(world:any):void {
   for(const name of lists){
     ok(Array.isArray(a[name]) && a[name].length<=limits[name],422,'office_record_limit','行政紀錄超出上限');
     for(const row of a[name]){
-      keys(row,[...stampKeys,...rowKeys[name]]);uuid(row.id);
+      rowStamp(row,name);
       const id=row.id.toLowerCase();ok(!ids.has(id),422,'id_collision','行政紀錄識別重複');ids.add(id);
-      ok(instant(row.updated_at)>=instant(row.created_at),422,'office_time_invalid','更新時間不可早於建立時間');
     }
   }
   for(const row of a.units){
@@ -197,22 +278,16 @@ export function validateAdministration(world:any):void {
   }
   for(const row of a.staff){text(row.code,32);text(row.alias,80);text(row.role_label,100,true);enumValue(row.status,['active','inactive']);rowById(a.units,row.unit_id);if(row.status==='active')activeUnit(a,row.unit_id);}
   uniqueCodes(a.staff);
-  for(const name of ['shifts','attendance'] as const)for(const row of a[name]){
-    const staff=rowById(a.staff,row.staff_id);rowById(a.units,row.unit_id);
-    ok(staff.unit_id===row.unit_id,422,'office_unit_mismatch','排班或出勤的示範員工與單位不符');interval(row,true);text(row.note,1000,true);
-    if(name==='shifts'){const shift=row as Administration['shifts'][number];enumValue(shift.status,['scheduled','completed','cancelled']);if(shift.status==='scheduled'){activeUnit(a,row.unit_id);activeStaff(a,row.staff_id,row.unit_id);}}
-  }
+  for(const name of ['shifts','attendance'] as const)for(const row of a[name])trackedRow(a,name,row);
   groupedOverlap(a.shifts.filter(row=>row.status!=='cancelled'),row=>row.staff_id);
-  groupedOverlap(a.attendance,row=>row.staff_id);
+  groupedOverlap(a.attendance.filter(row=>row.voided!==true),row=>row.staff_id);
   for(const row of a.requests)requestFields(a,row);
   for(const row of a.equipment){text(row.code,32);text(row.name);enumValue(row.state,['available','maintenance','retired']);rowById(a.units,row.unit_id);if(row.state!=='retired')activeUnit(a,row.unit_id);}
   uniqueCodes(a.equipment);
-  for(const row of a.reservations){
-    const equipment=rowById(a.equipment,row.equipment_id);rowById(a.staff,row.staff_id);interval(row,false,31*24*60);text(row.purpose,1000,true);enumValue(row.status,['reserved','returned','cancelled']);
-    if(row.status==='reserved'){ok(equipment.state==='available',409,'office_equipment_unavailable','設備目前不可借用');activeUnit(a,equipment.unit_id);activeStaff(a,row.staff_id);}
-  }
+  for(const row of a.reservations)trackedRow(a,'reservations',row);
   groupedOverlap(a.reservations.filter(row=>row.status==='reserved'),row=>row.equipment_id);
-  for(const row of a.notices){text(row.title);text(row.body,2000,true);if(row.unit_id!==null)rowById(a.units,row.unit_id);ok(typeof row.pinned==='boolean',422,'office_fields_invalid','公告置頂狀態不符');if(row.due_at!==null)instant(row.due_at);}
+  for(const row of a.notices)trackedRow(a,'notices',row);
+  validateChanges(a,ids);
 }
 
 function monday(value:any):number {
@@ -227,6 +302,40 @@ function transitionRequest(row:Administration['requests'][number],status:Request
   row.status=status;row.transitions.push({status,at:now,note});
   if(status==='returned')row.processing_note=note;
 }
+function correctRecord(world:any,a:Administration,kind:AdministrationChangeKind,p:any,now:string,edit:(row:any)=>void):string {
+  text(p.reason,1000);ok(a.changes!.length<200,422,'office_change_limit','更正與封存紀錄最多 200 筆');
+  const name=changeCollections[kind],row=rowById(a[name] as {id:string}[],p.id),before=structuredClone(row),after=structuredClone(row) as any;
+  edit(after);after.updated_at=now;
+  const change:AdministrationChange={id:randomUUID(),kind,record_id:row.id,at:now,reason:p.reason,before,after};
+  const trial={...world,administration:{...a,[name]:a[name].map((value:any)=>value.id===row.id?after:value),changes:[...a.changes!,change]}};
+  validateAdministration(trial);Object.assign(row,after);a.changes!.push(change);return row.id;
+}
+function correctionFields(p:any,allowed:string[]) {
+  ok(allowed.some(key=>Object.hasOwn(p,key)),422,'office_fields_invalid','請指定要更正的欄位並填寫理由');
+}
+function createDemo(world:any,p:any,now:string):string {
+  const a:Administration=world.administration;
+  enumValue(p.preset,['store','office','factory']);const week=monday(p.week_start);
+  ok(lists.every(name=>a[name].length===0) && a.changes!.length===0,409,'office_demo_not_empty','行政資料已有紀錄，不能覆寫成示範資料');
+  const trial={...world,administration:createAdministration()};
+  const run=(action:string,payload:any)=>applyAdministration(trial,action,payload,now);
+  const definitions={
+    store:{unit:'合成示範門市',kind:'branch',roles:['示範店務','示範行政'],equipment:'合成示範收銀平板',purchase:'合成示範請購：店務耗材',amount:3200},
+    office:{unit:'合成示範行政組',kind:'department',roles:['示範行政','示範總務'],equipment:'合成示範簡報設備',purchase:'合成示範請購：辦公耗材',amount:4500},
+    factory:{unit:'合成示範廠務組',kind:'department',roles:['示範現場協調','示範廠務'],equipment:'合成示範巡檢平板',purchase:'合成示範請購：巡檢耗材',amount:6000},
+  };
+  const d=definitions[p.preset as keyof typeof definitions],unit=run('office.unit.create',{name:d.unit,kind:d.kind});
+  const staff=d.roles.map((role,index)=>run('office.staff.create',{code:`DEMO-${index+1}`,alias:`合成示範夥伴${index===0?'甲':'乙'}`,unit_id:unit,role_label:role}));
+  const time=(day:number,hour:number,minute=0)=>new Date(week+(day*24*60+hour*60+minute)*60000).toISOString();
+  for(let day=0;day<5;day++)run('office.shift.create',{staff_id:staff[day%2],unit_id:unit,start_at:time(day,9),end_at:time(day,17),break_minutes:60,note:'合成示範排班，供流程練習'});
+  for(let day=0;day<2;day++)run('office.attendance.create',{staff_id:staff[day%2],unit_id:unit,start_at:time(day,9,5),end_at:time(day,16,55),break_minutes:60,note:'人工輸入的合成示範出勤，非真實打卡'});
+  run('office.request.create',{type:'purchase',staff_id:staff[0],unit_id:unit,title:d.purchase,description:'合成示範草稿，只練習行政資料整理，未送出、未核准、未付款。',amount_minor:d.amount});
+  const equipment=run('office.equipment.create',{code:'DEMO-EQ-1',name:d.equipment,unit_id:unit});
+  run('office.reservation.create',{equipment_id:equipment,staff_id:staff[0],start_at:time(1,13),end_at:time(1,15),purpose:'合成示範借用，練習改期、歸還與取消'});
+  run('office.notice.create',{title:'合成示範：行政入門提醒',body:'這批資料全部為合成示範，可練習排班更正、出勤作廢、申請退回與設備借用。',unit_id:unit,pinned:true,due_at:time(4,16)});
+  run('office.notice.create',{title:'合成示範：公告封存練習',body:'完成閱讀後可封存，再從封存列表還原；資料會保留。'});
+  validateAdministration(trial);world.administration=trial.administration;return unit;
+}
 
 export function applyAdministration(world:any,action:string,p:any,now:string):string {
   ok(Object.hasOwn(actions,action),422,'action_invalid','無效行政操作');
@@ -240,8 +349,14 @@ export function applyAdministration(world:any,action:string,p:any,now:string):st
   ok(Array.isArray(world.modules) && world.modules.includes('administration'),403,'module_disabled','行政模組未啟用');
   validateAdministration(world);
   const a:Administration=world.administration;
+  // Normalize only on an explicit office command, after validating the legacy shape.
+  a.changes??=[];
+  for(const row of a.attendance)if(!Object.hasOwn(row,'voided'))row.voided=false;
+  for(const row of a.notices)if(!Object.hasOwn(row,'archived'))row.archived=false;
   let result:string;
-  if(action==='office.unit.create'){
+  if(action==='office.demo.create'){
+    result=createDemo(world,p,now);
+  }else if(action==='office.unit.create'){
     const parent_id=p.parent_id??null;if(parent_id!==null)activeUnit(a,parent_id);
     const row={...stamp(now),name:p.name,kind:p.kind,parent_id,active:true};a.units.push(row);result=row.id;
   }else if(action==='office.unit.update'){
@@ -254,9 +369,18 @@ export function applyAdministration(world:any,action:string,p:any,now:string):st
   }else if(action==='office.shift.create' || action==='office.attendance.create'){
     activeUnit(a,p.unit_id);activeStaff(a,p.staff_id,p.unit_id);
     const row={...stamp(now),staff_id:p.staff_id,unit_id:p.unit_id,start_at:p.start_at,end_at:p.end_at,break_minutes:provided(p,'break_minutes',0),note:provided(p,'note','')};
-    if(action==='office.shift.create')a.shifts.push({...row,status:'scheduled'});else a.attendance.push(row);result=row.id;
+    if(action==='office.shift.create')a.shifts.push({...row,status:'scheduled'});else a.attendance.push({...row,voided:false});result=row.id;
+  }else if(action==='office.shift.update' || action==='office.attendance.update'){
+    const shift=action==='office.shift.update',row:any=shift?rowById(a.shifts,p.id):rowById(a.attendance,p.id);
+    ok(shift?row.status==='scheduled':row.voided!==true,409,'office_transition_invalid',shift?'只有已排定班次可更正':'已作廢出勤不可再更正');
+    correctionFields(p,['start_at','end_at','break_minutes','note']);
+    result=correctRecord(world,a,shift?'shift.update':'attendance.update',p,now,after=>{for(const key of ['start_at','end_at','break_minutes','note'])if(key in p)after[key]=p[key];});
+  }else if(action==='office.attendance.void'){
+    const row=rowById(a.attendance,p.id);ok(row.voided!==true,409,'office_transition_invalid','出勤已作廢');
+    result=correctRecord(world,a,'attendance.void',p,now,after=>{after.voided=true;});
   }else if(action==='office.shift.cancel' || action==='office.shift.complete'){
     const row=rowById(a.shifts,p.id);ok(row.status==='scheduled',409,'office_transition_invalid','只有已排定班次可取消或標記排班完成');
+    if(action==='office.shift.complete')ok(instant(row.end_at)<=instant(now),409,'office_shift_not_finished','班次尚未到結束時間，不能標記排班完成');
     row.status=action.endsWith('.cancel')?'cancelled':'completed';row.updated_at=now;result=row.id;
   }else if(action==='office.shift.copy_week'){
     const from=monday(p.from_date),to=monday(p.to_date);
@@ -293,11 +417,18 @@ export function applyAdministration(world:any,action:string,p:any,now:string):st
   }else if(action==='office.reservation.create'){
     const equipment=rowById(a.equipment,p.equipment_id);ok(equipment.state==='available',409,'office_equipment_unavailable','設備目前不可借用');activeUnit(a,equipment.unit_id);activeStaff(a,p.staff_id);
     const row={...stamp(now),equipment_id:p.equipment_id,staff_id:p.staff_id,start_at:p.start_at,end_at:p.end_at,purpose:provided(p,'purpose',''),status:'reserved' as const};a.reservations.push(row);result=row.id;
+  }else if(action==='office.reservation.update'){
+    const row=rowById(a.reservations,p.id);ok(row.status==='reserved',409,'office_transition_invalid','只有借用中的預約可更正');correctionFields(p,['start_at','end_at','purpose']);
+    result=correctRecord(world,a,'reservation.update',p,now,after=>{for(const key of ['start_at','end_at','purpose'])if(key in p)after[key]=p[key];});
   }else if(action==='office.reservation.return' || action==='office.reservation.cancel'){
     const row=rowById(a.reservations,p.id);ok(row.status==='reserved',409,'office_transition_invalid','只有借用中的預約可歸還或取消');row.status=action.endsWith('.return')?'returned':'cancelled';row.updated_at=now;result=row.id;
   }else if(action==='office.notice.create'){
     const unit_id=p.unit_id??null;if(unit_id!==null)activeUnit(a,unit_id);
-    const row={...stamp(now),title:p.title,body:provided(p,'body',''),unit_id,pinned:provided(p,'pinned',false),due_at:p.due_at??null};a.notices.push(row);result=row.id;
+    const row={...stamp(now),title:p.title,body:provided(p,'body',''),unit_id,pinned:provided(p,'pinned',false),due_at:p.due_at??null,archived:false};a.notices.push(row);result=row.id;
+  }else if(action==='office.notice.archive' || action==='office.notice.restore'){
+    const row=rowById(a.notices,p.id),archive=action==='office.notice.archive';
+    ok((row.archived===true)!==archive,409,'office_transition_invalid',archive?'公告已封存':'公告尚未封存');
+    result=correctRecord(world,a,archive?'notice.archive':'notice.restore',{...p,reason:archive?'封存公告':'還原公告'},now,after=>{after.archived=archive;});
   }else{
     editablePayload(p);const row=rowById(a.notices,p.id);if('unit_id' in p && p.unit_id!==null)activeUnit(a,p.unit_id);
     for(const key of ['title','body','unit_id','pinned','due_at'] as const)if(key in p)(row as any)[key]=p[key];row.updated_at=now;result=row.id;

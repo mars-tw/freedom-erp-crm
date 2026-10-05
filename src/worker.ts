@@ -1,22 +1,67 @@
 import {DurableObject} from 'cloudflare:workers';
 import {Hono} from 'hono';
-const tokenHex=(size:number)=>Array.from(crypto.getRandomValues(new Uint8Array(size)),v=>v.toString(16).padStart(2,'0')).join('');
 import {command,createWorld,report,validateWorld} from './engine.js';
 import {digest,ok,Problem} from './problem.js';
 import {templates} from './templates.js';
+import {readWorkspaceState,writeWorkspaceState} from './workspace-storage.js';
+import {backupStatus,backupTransfer,assembleBackup,discardBackup} from './workspace-backup.js';
+const tokenHex=(size:number)=>Array.from(crypto.getRandomValues(new Uint8Array(size)),v=>v.toString(16).padStart(2,'0')).join('');
 interface Env {WORKSPACES:DurableObjectNamespace<BusinessWorkspace>;ASSETS:Fetcher;DEFAULT_INDUSTRY?:string;DEFAULT_COMPANY?:string;DEFAULT_MODULES?:string;PUBLIC_DEMO?:string;AUTO_SETUP?:string;RETENTION_HOURS?:string}
-interface Stored {workspace:any;csrf:string;receipts:Record<string,any>;lastAt:number;rate:{start:number,count:number};version:number}
-const json=(data:any,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+interface Stored {workspace:any;csrf:string;receipts:Record<string,any>;lastAt:number;rate:{start:number;count:number};version:number}
+const json=(data:any,status=200,extra:Record<string,string>={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra}});
+function failure(error:unknown){if(error instanceof Problem){const wait=(error as Problem&{retryAfterMs?:number}).retryAfterMs;return json({error:{code:error.code,message:error.message,...(wait?{retry_after_ms:wait}:{})}},error.status,wait?{'Retry-After':String(Math.ceil(wait/1000))}:{});}return json({error:{code:'internal_error',message:'無法完成模擬操作，請確認原操作結果'}},500);}
+
 export class BusinessWorkspace extends DurableObject<Env>{
  async alarm(){await this.ctx.storage.deleteAll();}
- async fetch(request:Request){try{return await this.ctx.blockConcurrencyWhile(async()=>{try{let s=await this.ctx.storage.get<Stored>('state');const fresh=s===undefined;const now=Date.now();if(!s)s={workspace:null,csrf:tokenHex(32),receipts:{},lastAt:now,rate:{start:now,count:0},version:0};s.rate=(await this.ctx.storage.get<Stored['rate']>('rate'))??s.rate;if(now-s.rate.start>60000)s.rate={start:now,count:0};ok(s.rate.count<120,429,'rate_limit','請稍後再試');s.rate.count++;await this.ctx.storage.put('rate',s.rate);s.lastAt=now;const url=new URL(request.url);const path=url.pathname.replace('/api/workspace','');if(request.method==='GET'){if(fresh&&path==='/view'&&this.env.PUBLIC_DEMO==='false'&&this.env.AUTO_SETUP==='true'){s.workspace=createWorld(this.env.DEFAULT_INDUSTRY??'retail',this.env.DEFAULT_COMPANY??'我的模擬企業',this.env.DEFAULT_MODULES?.split(','),1);s.version=1;validateWorld(s.workspace);}await this.persist(s);if(path==='/view')return json({workspace:s.workspace,csrf:s.csrf,version:s.version,retention_hours:this.env.PUBLIC_DEMO==='false'?null:72,expires_at:this.env.PUBLIC_DEMO==='false'?null:new Date(s.lastAt+72*3600000).toISOString(),report:s.workspace?report(s.workspace):null});if(path==='/export'){ok(s.workspace,404,'workspace_missing','請先建立工作區');return json(s.workspace);}if(path.startsWith('/receipts/')){const receipt=s.receipts[decodeURIComponent(path.slice(10))];ok(receipt,404,'receipt_missing','找不到收據');return json({receipt});}return json({error:{code:'not_found',message:'找不到路徑'}},404);}
- ok(request.method==='POST',405,'method_invalid','不支援此方法');ok(request.headers.get('Origin')===url.origin,403,'origin_invalid','拒絕跨來源寫入');ok(request.headers.get('x-csrf-token')===s.csrf,403,'csrf_invalid','工作區驗證失敗');const key=request.headers.get('Idempotency-Key');ok(key&&/^[A-Za-z0-9_-]{8,100}$/.test(key),422,'key_required','請提供操作識別');const expected=request.headers.get('If-Match-Version');ok(expected&&/^\d+$/.test(expected),428,'version_required','請提供工作區版本');const text=await request.text();ok(new TextEncoder().encode(text).length<=32768,413,'body_limit','請求太大');let body;try{body=JSON.parse(text);}catch{throw new Problem(422,'json_invalid','JSON格式不符');}const hash=digest({path,body,expected});const prior=s.receipts[key];if(prior){ok(prior.hash===hash,409,'idempotency_conflict','相同識別不能使用不同參數');await this.persist(s);return json({workspace:s.workspace,result:prior.result,receipt:prior,replayed:true});}ok(Number(expected)===s.version,412,'version_stale','工作區版本已更新');ok(Object.keys(s.receipts).length<500,429,'receipt_limit','操作數已達公開試用上限');const next=structuredClone(s);let result:string|null=null;
- if(path==='/setup'){ok(!s.workspace,409,'workspace_exists','工作區已存在，請先清除');next.workspace=createWorld(body.industry,body.company_name,body.modules,s.version+1);result=next.workspace.generation_id;}
- else if(path==='/commands'){ok(s.workspace,409,'workspace_missing','請先建立工作區');ok(typeof body.action==='string',422,'action_invalid','請指定操作');const applied=command(s.workspace,body.action,body.payload);next.workspace=applied.workspace;result=applied.result;}
- else if(path==='/import'){ok(body&&body.workspace,422,'import_invalid','請提供模擬工作區');try{validateWorld(body.workspace);}catch(e){if(e instanceof Problem)throw e;throw new Problem(422,'import_invalid','匯入結構不符');}next.workspace=structuredClone(body.workspace);next.workspace.generation_id=tokenHex(16);next.workspace.version=s.version+1;result=next.workspace.generation_id;}
- else if(path==='/clear'){next.workspace=null;next.csrf=tokenHex(32);result=null;}
- else throw new Problem(404,'not_found','找不到路徑');next.version=s.version+1;if(next.workspace){next.workspace.version=next.version;validateWorld(next.workspace);}const receipt={id:key,hash,expected_version:Number(expected),version:next.version,action:path==='/commands'?body.action:path,result,created_at:new Date(now).toISOString(),simulation:true};next.receipts[key]=receipt;await this.persist(next);return json({workspace:next.workspace,result,receipt,csrf:next.csrf,version:next.version,report:next.workspace?report(next.workspace):null});}catch(e){if(e instanceof Problem)return json({error:{code:e.code,message:e.message}},e.status);return json({error:{code:'internal_error',message:'無法完成模擬操作'}},500);}});}catch(e){if(e instanceof Problem)return json({error:{code:e.code,message:e.message}},e.status);return json({error:{code:'internal_error',message:'無法完成模擬操作'}},500);}}
- private async persist(s:Stored){await this.ctx.storage.put('state',s);if(this.env.PUBLIC_DEMO!=='false')await this.ctx.storage.setAlarm(Date.now()+72*3600000);else await this.ctx.storage.deleteAlarm();}
+ async fetch(request:Request){try{return await this.ctx.blockConcurrencyWhile(async()=>{try{return await this.handle(request);}catch(error){return failure(error);}});}catch(error){return failure(error);}}
+ private async handle(request:Request):Promise<Response>{
+  let s=await readWorkspaceState<Stored>(this.ctx.storage);const fresh=s===undefined,now=Date.now();
+  if(!s)s={workspace:null,csrf:tokenHex(32),receipts:{},lastAt:now,rate:{start:now,count:0},version:0};
+  s.rate=(await this.ctx.storage.get<Stored['rate']>('rate'))??s.rate;
+  if(now-s.rate.start>60000)s.rate={start:now,count:0};
+  if(s.rate.count>=120){const error=new Problem(429,'rate_limit','操作較密集，請稍候接續原工作');Object.assign(error,{retryAfterMs:Math.max(1,s.rate.start+60001-now)});throw error;}
+  s.rate.count++;await this.ctx.storage.put('rate',s.rate);s.lastAt=now;
+  const url=new URL(request.url),path=url.pathname.replace('/api/workspace','');
+  if(request.method==='GET'){
+   if(fresh&&path==='/view'&&this.env.PUBLIC_DEMO==='false'&&this.env.AUTO_SETUP==='true'){s.workspace=createWorld(this.env.DEFAULT_INDUSTRY??'retail',this.env.DEFAULT_COMPANY??'我的模擬企業',this.env.DEFAULT_MODULES?.split(','),1);s.version=1;validateWorld(s.workspace);}
+   await this.persist(s);
+   if(path==='/view')return json({workspace:s.workspace,csrf:s.csrf,version:s.version,retention_hours:this.env.PUBLIC_DEMO==='false'?null:72,expires_at:this.env.PUBLIC_DEMO==='false'?null:new Date(s.lastAt+72*3600000).toISOString(),report:s.workspace?report(s.workspace):null});
+   if(path==='/export'){ok(s.workspace,404,'workspace_missing','請先建立工作區');return json(s.workspace);}
+   if(path==='/import/status')return json({...await backupStatus(this.ctx.storage,now),version:s.version});
+   if(path.startsWith('/receipts/')){const receipt=s.receipts[decodeURIComponent(path.slice(10))];ok(receipt,404,'receipt_missing','找不到收據');return json({receipt});}
+   return json({error:{code:'not_found',message:'找不到路徑'}},404);
+  }
+  ok(request.method==='POST',405,'method_invalid','不支援此方法');
+  ok(request.headers.get('Origin')===url.origin,403,'origin_invalid','拒絕跨來源寫入');
+  ok(request.headers.get('x-csrf-token')===s.csrf,403,'csrf_invalid','工作區驗證失敗');
+  const key=request.headers.get('Idempotency-Key');ok(key&&/^[A-Za-z0-9_-]{8,100}$/.test(key),422,'key_required','請提供操作識別');
+  const expected=request.headers.get('If-Match-Version');ok(expected&&/^\d+$/.test(expected),428,'version_required','請提供工作區版本');
+  const text=await request.text();ok(new TextEncoder().encode(text).length<=32768,413,'body_limit','請求太大');
+  let body:any;try{body=JSON.parse(text);}catch{throw new Problem(422,'json_invalid','JSON 格式不符');}
+  const hash=digest({path,body,expected});
+  const prior=s.receipts[key];
+  if(prior){ok(prior.hash===hash,409,'idempotency_conflict','相同識別不能使用不同參數');await this.persist(s);return json({workspace:s.workspace,result:prior.result,receipt:prior,replayed:true,csrf:s.csrf,version:s.version,report:s.workspace?report(s.workspace):null});}
+  ok(Number(expected)===s.version,412,'version_stale','工作區版本已更新');
+  if(['/import/begin','/import/part','/import/abort'].includes(path)){const transfer=await backupTransfer(this.ctx.storage,path,body,Number(expected),s.version,key,hash,now);await this.persist(s);return json(transfer);}
+  ok(Object.keys(s.receipts).length<500||['/clear','/import','/import/commit','/setup'].includes(path),429,'receipt_limit','操作數已達試用上限，請先備份，再清除或還原工作區');
+  const next=structuredClone(s);let result:string|null=null;
+  if(path==='/setup'){ok(!s.workspace,409,'workspace_exists','工作區已存在，請先備份及清除');next.workspace=createWorld(body.industry,body.company_name,body.modules,s.version+1);result=next.workspace.generation_id;}
+  else if(path==='/commands'){ok(s.workspace,409,'workspace_missing','請先建立工作區');ok(typeof body.action==='string',422,'action_invalid','請指定操作');const applied=command(s.workspace,body.action,body.payload);next.workspace=applied.workspace;result=applied.result;}
+  else if(path==='/import'||path==='/import/commit'){
+   const workspace=path==='/import/commit'?await assembleBackup(this.ctx.storage,body,s.version,now):body?.workspace;ok(workspace,422,'import_invalid','請提供模擬工作區');
+   try{validateWorld(workspace);}catch(error){if(error instanceof Problem)throw error;throw new Problem(422,'import_invalid','匯入結構不符');}
+   next.workspace=structuredClone(workspace);next.workspace.generation_id=tokenHex(16);next.workspace.version=s.version+1;result=next.workspace.generation_id;
+  }
+  else if(path==='/clear'){next.workspace=null;next.csrf=tokenHex(32);result=null;}
+  else throw new Problem(404,'not_found','找不到路徑');
+  next.version=s.version+1;if(next.workspace){next.workspace.version=next.version;validateWorld(next.workspace);}
+  const receipt={id:key,hash,expected_version:Number(expected),version:next.version,action:path==='/commands'?body.action:path,result,created_at:new Date(now).toISOString(),simulation:true};
+  if(Object.keys(next.receipts).length>=500&&['/clear','/setup','/import','/import/commit'].includes(path))next.receipts=Object.fromEntries(Object.entries(next.receipts).slice(-100));
+  next.receipts[key]=receipt;await this.persist(next);
+  if(['/clear','/import','/import/commit','/setup'].includes(path)){try{await discardBackup(this.ctx.storage,path==='/import/commit'?body.id:undefined);}catch{/* A completed commit remains acknowledged; temporary upload data can expire. */}}
+  return json({workspace:next.workspace,result,receipt,csrf:next.csrf,version:next.version,report:next.workspace?report(next.workspace):null});
+ }
+ private async persist(s:Stored){await writeWorkspaceState(this.ctx.storage,s);if(this.env.PUBLIC_DEMO!=='false')await this.ctx.storage.setAlarm(Date.now()+72*3600000);else await this.ctx.storage.deleteAlarm();}
 }
 const app=new Hono<{Bindings:Env}>();
 app.get('/api/health',c=>c.json({name:'freedom-erp-crm',version:'0.1.0',simulation:true,real_finance:false,currency:'SIM'}));

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {command,createWorld,validateWorld} from '../src/engine.js';
+import {command,createWorld,report,validateWorld} from '../src/engine.js';
 import {createAdministration,validateAdministration} from '../src/administration.js';
 
 const start='2026-10-05T09:00:00+08:00',end='2026-10-05T10:00:00+08:00';
@@ -23,7 +23,7 @@ function rejectedWithoutChange(f:{w:any},action:string,p:any) {
 
 test('administration is an explicit versioned empty extension and legacy disabled worlds stay valid',()=>{
   const a=createAdministration();assert.equal(a.format,'freedom-administration-v1');
-  assert.deepEqual(Object.keys(a).sort(),['format','units','staff','shifts','attendance','requests','equipment','reservations','notices'].sort());
+  assert.deepEqual(Object.keys(a).sort(),['format','units','staff','shifts','attendance','requests','equipment','reservations','notices','changes'].sort());
   const enabled=createWorld('general','行政測試',['administration']);assert.deepEqual(enabled.administration,a);validateWorld(enabled);
   const legacy=createWorld('retail','舊工作台');assert.equal(Object.hasOwn(legacy,'administration'),false);validateWorld(legacy);
   const f={w:legacy};rejectedWithoutChange(f,'office.unit.create',{name:'甲',kind:'branch'});
@@ -315,4 +315,145 @@ test('import enforces per-collection quotas and successful records survive a JSO
   const excessive=structuredClone(f.w);excessive.administration.notices=Array.from({length:101},()=>({...base,id:randomUUID()}));assert.throws(()=>validateWorld(excessive));
   const units=structuredClone(f.w);units.administration.units=Array.from({length:51},(_,i)=>({...units.administration.units[0],id:i===0?f.unit:randomUUID(),name:`示範單位${i}`}));assert.throws(()=>validateWorld(units));
   const restored=JSON.parse(JSON.stringify(f.w));validateWorld(restored);assert.deepEqual(restored.administration,f.w.administration);
+});
+
+test('published format1 records validate without changes or flags and normalize only in a successful office command',()=>{
+  const f=fixture();step(f,'office.attendance.create',timePayload(f));const notice=step(f,'office.notice.create',{title:'舊版示範公告'});
+  delete f.w.administration.changes;delete f.w.administration.attendance[0].voided;delete f.w.administration.notices[0].archived;
+  const saved=JSON.stringify(f.w);validateWorld(f.w);report(f.w);assert.equal(JSON.stringify(f.w),saved);
+  rejectedWithoutChange(f,'office.attendance.update',{id:f.w.administration.attendance[0].id,note:'未提供理由'});
+  const old=f.w;step(f,'office.notice.update',{id:notice,body:'更新舊版示範公告'});
+  assert.equal(JSON.stringify(old),saved);assert.deepEqual(f.w.administration.changes,[]);
+  assert.equal(f.w.administration.attendance[0].voided,false);assert.equal(f.w.administration.notices[0].archived,false);validateWorld(f.w);
+});
+
+test('scheduled shift rescheduling preserves old values and rejects conflicts or incomplete correction payloads atomically',()=>{
+  const f=fixture();const id=step(f,'office.shift.create',timePayload(f));
+  const next=step(f,'office.shift.create',timePayload(f,{start_at:'2026-10-05T11:00:00+08:00',end_at:'2026-10-05T12:00:00+08:00'}));
+  step(f,'office.shift.update',{id,start_at:end,end_at:'2026-10-05T11:00:00+08:00',note:'更正後示範排班',reason:'示範人力調整'});
+  const log=f.w.administration.changes[0];assert.equal(log.kind,'shift.update');assert.equal(log.record_id,id);assert.equal(log.before.start_at,start);assert.equal(log.after.start_at,end);assert.equal(log.reason,'示範人力調整');
+  assert.equal(log.at,log.after.updated_at);assert.notEqual(log.id,id);
+  for(const p of [{start_at:'2026-10-05T10:30:00+08:00',end_at:'2026-10-05T11:30:00+08:00',reason:'衝突更正'},
+    {note:'未填理由'},{note:'空理由',reason:'  '},{reason:'只有理由'},{note:'更正後示範排班',reason:'無變更'},
+    {staff_id:f.otherStaff,reason:'改變所屬'},{status:'completed',reason:'注入狀態'}])rejectedWithoutChange(f,'office.shift.update',{id,...p});
+  assert.equal(f.w.administration.changes.length,1);step(f,'office.shift.cancel',{id});step(f,'office.shift.cancel',{id:next});
+  rejectedWithoutChange(f,'office.shift.update',{id,note:'已取消班次',reason:'錯誤更正'});
+  step(f,'office.staff.update',{id:f.staff,status:'inactive'});validateWorld(f.w);
+});
+
+test('future scheduled shifts cannot be marked complete while cancellation stays available',()=>{
+  const f=fixture();const id=step(f,'office.shift.create',timePayload(f,{start_at:'2099-10-05T09:00:00+08:00',end_at:'2099-10-05T10:00:00+08:00'}));
+  const saved=JSON.stringify(f.w);assert.throws(()=>command(f.w,'office.shift.complete',{id}),(error:any)=>error.code==='office_shift_not_finished');
+  assert.equal(JSON.stringify(f.w),saved);assert.equal(f.w.administration.attendance.length,0);step(f,'office.shift.cancel',{id});
+});
+
+test('attendance corrections and voids retain the complete chain and allow a replacement record',()=>{
+  const f=fixture();const id=step(f,'office.attendance.create',timePayload(f,{note:'原始示範出勤'}));
+  step(f,'office.attendance.update',{id,end_at:'2026-10-05T11:00:00+08:00',break_minutes:20,note:'更正後示範出勤',reason:'補正示範時間'});
+  rejectedWithoutChange(f,'office.attendance.create',timePayload(f));
+  step(f,'office.attendance.void',{id,reason:'重複輸入，保留原始紀錄'});assert.equal(f.w.administration.attendance[0].voided,true);
+  const replacement=step(f,'office.attendance.create',timePayload(f));assert.notEqual(replacement,id);
+  const logs=f.w.administration.changes;assert.equal(logs.length,2);assert.equal(logs[0].before.note,'原始示範出勤');assert.deepEqual(logs[1].before,logs[0].after);
+  assert.equal(logs[1].after.voided,true);assert.equal(logs[1].reason,'重複輸入，保留原始紀錄');
+  rejectedWithoutChange(f,'office.attendance.void',{id,reason:'再次作廢'});rejectedWithoutChange(f,'office.attendance.update',{id,note:'重新更正',reason:'不可改作廢紀錄'});
+  rejectedWithoutChange(f,'office.attendance.update',{id:replacement,voided:true,reason:'注入作廢狀態'});validateWorld(f.w);
+});
+
+test('attendance correction rejects overlap without changing row values or appending an audit log',()=>{
+  const f=fixture();const id=step(f,'office.attendance.create',timePayload(f));
+  step(f,'office.attendance.create',timePayload(f,{start_at:'2026-10-05T11:00:00+08:00',end_at:'2026-10-05T12:00:00+08:00'}));
+  rejectedWithoutChange(f,'office.attendance.update',{id,end_at:'2026-10-05T11:01:00+08:00',reason:'重疊更正'});
+  rejectedWithoutChange(f,'office.attendance.update',{id,staff_id:f.otherStaff,reason:'改變所屬'});
+  assert.equal(f.w.administration.changes.length,0);assert.equal(f.w.administration.attendance[0].end_at,end);
+});
+
+test('reservation rescheduling keeps equipment and staff immutable and preserves the trace after return',()=>{
+  const f=fixture();const equipment=step(f,'office.equipment.create',{code:'EQ-MOVE',name:'示範改期設備',unit_id:f.unit});
+  const p={equipment_id:equipment,staff_id:f.staff,start_at:start,end_at:end};const id=step(f,'office.reservation.create',p);
+  const other=step(f,'office.reservation.create',{...p,start_at:'2026-10-05T12:00:00+08:00',end_at:'2026-10-05T13:00:00+08:00'});
+  step(f,'office.reservation.update',{id,start_at:'2026-10-05T10:00:00+08:00',end_at:'2026-10-05T12:00:00+08:00',purpose:'調整後示範借用',reason:'示範改期'});
+  assert.equal(f.w.administration.changes[0].before.start_at,start);assert.equal(f.w.administration.changes[0].after.purpose,'調整後示範借用');
+  for(const extra of [{end_at:'2026-10-05T12:01:00+08:00'},{staff_id:f.otherStaff},{equipment_id:randomUUID()}])rejectedWithoutChange(f,'office.reservation.update',{id,...extra,reason:'不可更正'});
+  step(f,'office.reservation.return',{id});step(f,'office.reservation.cancel',{id:other});step(f,'office.equipment.update',{id:equipment,state:'retired'});
+  rejectedWithoutChange(f,'office.reservation.update',{id,purpose:'歸還後更正',reason:'不可更正'});validateWorld(f.w);
+});
+
+test('notice archive and restore preserve records with server reasons and keep a consistent history after edits',()=>{
+  const f=fixture();const id=step(f,'office.notice.create',{title:'示範重要公告',body:'原始示範內容',pinned:true});
+  step(f,'office.notice.archive',{id});assert.equal(f.w.administration.notices.length,1);assert.equal(f.w.administration.notices[0].archived,true);
+  rejectedWithoutChange(f,'office.notice.archive',{id});rejectedWithoutChange(f,'office.notice.restore',{id,reason:'自填理由'});
+  step(f,'office.notice.update',{id,body:'已整理示範內容'});step(f,'office.notice.restore',{id});
+  const logs=f.w.administration.changes;assert.deepEqual(logs.map((r:any)=>r.kind),['notice.archive','notice.restore']);
+  assert.deepEqual(logs.map((r:any)=>r.reason),['封存公告','還原公告']);assert.equal(logs[1].before.body,'已整理示範內容');
+  assert.equal(f.w.administration.notices[0].archived,false);rejectedWithoutChange(f,'office.notice.restore',{id});validateWorld(f.w);
+});
+
+test('reports exclude voided attendance and archived pinned notices without removing their records',()=>{
+  const f=fixture();const attendance=step(f,'office.attendance.create',timePayload(f,{break_minutes:10}));const notice=step(f,'office.notice.create',{title:'示範置頂公告',pinned:true});
+  const officeReport=()=>{const value=report(f.w);assert('administration' in value);return value.administration;};
+  assert.equal(officeReport().actual_work_minutes,50);assert.equal(officeReport().pinned_notices,1);
+  step(f,'office.attendance.void',{id:attendance,reason:'示範作廢'});step(f,'office.notice.archive',{id:notice});
+  assert.equal(officeReport().actual_work_minutes,0);assert.equal(officeReport().pinned_notices,0);
+  assert.equal(f.w.administration.attendance.length,1);assert.equal(f.w.administration.notices.length,1);
+  step(f,'office.notice.restore',{id:notice});assert.equal(officeReport().pinned_notices,1);
+});
+
+test('change import rejects forged keys, identities, reference assignments, times and mismatched snapshots',()=>{
+  const f=fixture();const id=step(f,'office.attendance.create',timePayload(f));step(f,'office.attendance.update',{id,note:'更正後示範',reason:'示範更正'});
+  const mutations=[(w:any)=>w.administration.changes[0].actor_id='injected',
+    (w:any)=>w.administration.changes[0].before.bank_account='injected',
+    (w:any)=>w.administration.changes[0].before.id=randomUUID(),
+    (w:any)=>w.administration.changes[0].after.staff_id=f.otherStaff,
+    (w:any)=>w.administration.changes[0].before.unit_id=randomUUID(),
+    (w:any)=>w.administration.changes[0].after.created_at='2000-01-01T00:00:00Z',
+    (w:any)=>w.administration.changes[0].at='2099-01-01T00:00:00Z',
+    (w:any)=>w.administration.changes[0].after.updated_at='2099-01-01T00:00:00Z',
+    (w:any)=>w.administration.changes[0].after.note='與現有資料不符',
+    (w:any)=>w.administration.changes[0].id=w.history[0].id,
+    (w:any)=>w.administration.changes[0].reason='',
+    (w:any)=>w.administration.changes[0].kind='attendance.approve',
+    (w:any)=>w.administration.changes[0].before.constructor={},
+    (w:any)=>w.administration.attendance[0].voided='false',
+    (w:any)=>w.administration.changes=null];
+  for(const mutate of mutations){const w=structuredClone(f.w);mutate(w);assert.throws(()=>validateWorld(w));}
+  step(f,'office.attendance.update',{id,note:'第二次更正',reason:'示範補正'});const broken=structuredClone(f.w);broken.administration.changes[1].before.note='斷裂的舊值';assert.throws(()=>validateWorld(broken));
+  const restored=JSON.parse(JSON.stringify(f.w));validateWorld(restored);assert.deepEqual(restored.administration.changes,f.w.administration.changes);
+});
+
+test('change quota retains all 200 audit records and refuses a 201st mutation atomically',()=>{
+  const f=fixture();const id=step(f,'office.attendance.create',timePayload(f));let row=structuredClone(f.w.administration.attendance[0]);
+  const at=row.created_at;f.w.administration.changes=[];
+  for(let i=0;i<200;i++){
+    const before=structuredClone(row);row={...row,note:`示範更正 ${i}`,updated_at:at};
+    f.w.administration.changes.push({id:randomUUID(),kind:'attendance.update',record_id:id,at,reason:'示範容量驗證',before,after:structuredClone(row)});
+  }
+  f.w.administration.attendance[0]=row;validateWorld(f.w);
+  rejectedWithoutChange(f,'office.attendance.update',{id,note:'第 201 筆',reason:'超出更正紀錄上限'});
+  rejectedWithoutChange(f,'office.attendance.void',{id,reason:'超出更正紀錄上限'});assert.equal(f.w.administration.changes.length,200);
+  const excessive=structuredClone(f.w);excessive.administration.changes.push({...excessive.administration.changes[199],id:randomUUID()});assert.throws(()=>validateWorld(excessive));
+});
+
+test('every demo preset builds complete explicitly synthetic records without changing legacy rows or SIM money',()=>{
+  for(const preset of ['store','office','factory']){
+    const f={w:createWorld('general','完整示範入門')};step(f,'wallet.fund',{wallet_id:f.w.wallets[0].id,amount_minor:1000});
+    const legacyNames=['products','wallets','orders','services','ledger','purchases','customers','contacts','deals','cases','quotes','tasks','milestones','boms','workOrders'];
+    const legacy=JSON.stringify(Object.fromEntries(legacyNames.map(name=>[name,f.w[name]])));
+    const id=step(f,'office.demo.create',{preset,week_start:'2026-09-28'}),a=f.w.administration;
+    assert.deepEqual(['units','staff','shifts','attendance','requests','equipment','reservations','notices'].map(name=>a[name].length),[1,2,5,2,1,1,1,2]);
+    assert.equal(id,a.units[0].id);assert.deepEqual(a.changes,[]);assert.equal(a.requests[0].status,'draft');assert.equal(a.requests[0].currency,'SIM');
+    assert(a.shifts.every((r:any)=>r.status==='scheduled' && r.note.includes('合成示範')));
+    assert(a.attendance.every((r:any)=>r.note.includes('非真實打卡') && r.voided===false));assert(a.staff.every((r:any)=>r.alias.includes('合成示範')));
+    assert(a.notices.every((r:any)=>r.archived===false));
+    assert.equal(new Date(Date.parse(a.shifts[0].start_at)+8*60*60000).toISOString().slice(0,16),'2026-09-28T09:00');
+    assert.equal(JSON.stringify(Object.fromEntries(legacyNames.map(name=>[name,f.w[name]]))),legacy);
+    rejectedWithoutChange(f,'office.demo.create',{preset,week_start:'2026-09-28'});validateWorld(f.w);
+  }
+});
+
+test('demo refuses existing administrative data, invalid dates, extra fields and disabled modules without overwriting',()=>{
+  const f={w:createWorld('general','空行政工作台')};
+  for(const p of [{preset:'unknown',week_start:'2026-09-28'},{preset:'office',week_start:'2026-09-29'},
+    {preset:'store',week_start:'2026-02-30'},{preset:'factory',week_start:'2026-09-28',changes:[]}])rejectedWithoutChange(f,'office.demo.create',p);
+  step(f,'office.notice.create',{title:'已有示範公告'});rejectedWithoutChange(f,'office.demo.create',{preset:'office',week_start:'2026-09-28'});
+  const disabled={w:createWorld('retail','未啟用行政')};rejectedWithoutChange(disabled,'office.demo.create',{preset:'store',week_start:'2026-09-28'});
 });

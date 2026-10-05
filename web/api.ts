@@ -5,9 +5,9 @@ export interface Template {id:string;name:string;modules:string[];purpose:string
 export interface View {workspace:Workspace|null;csrf:string;version:number;report:RecordData|null;expires_at?:string|null;retention_hours?:number|null}
 export interface TemplateCatalog {items:Template[];defaults:{industry:string;company_name:string;modules?:string[];public_demo:boolean;retention_hours:number|null}}
 export interface Pending {key:string;path:string;body:string;version:number}
-export class ApiError extends Error {constructor(message:string,public status:number,public code:string){super(message)}}
+export class ApiError extends Error {constructor(message:string,public status:number,public code:string,public retryAfterMs=0){super(message)}}
 const pendingKey='freedom-erp.pending.v1';
-const paths=new Set(['/api/workspace/commands','/api/workspace/setup','/api/workspace/import','/api/workspace/clear']);
+const paths=new Set(['/api/workspace/commands','/api/workspace/setup','/api/workspace/import','/api/workspace/import/commit','/api/workspace/clear']);
 let memoryPending:Pending|null=null;
 let preferMemory=false;
 function validPending(value:unknown):value is Pending {
@@ -24,7 +24,7 @@ export function readPending():Pending|null{
 export function isPendingVolatile(){return !!memoryPending&&preferMemory;}
 function savePending(request:Pending){memoryPending=structuredClone(request);try{sessionStorage.setItem(pendingKey,JSON.stringify(request));preferMemory=false;}catch{preferMemory=true;}}
 export function forgetPending(){memoryPending=null;try{sessionStorage.removeItem(pendingKey);preferMemory=false;}catch{preferMemory=true;}}
-async function decode(response:Response):Promise<any>{const data:any=await response.json().catch(()=>{throw new Error('伺服器回應無法讀取，原操作已保留。請確認原操作結果。')});if(!response.ok)throw new ApiError(data.message||data.error?.message||'操作未完成，請重新整理後再試。',response.status,data.code||data.error?.code||'request_failed');return data}
+async function decode(response:Response):Promise<any>{const data:any=await response.json().catch(()=>{throw new Error('伺服器回應無法讀取，原操作已保留。請確認原操作結果。')});if(!response.ok)throw new ApiError(data.message||data.error?.message||'操作未完成，請重新整理後再試。',response.status,data.code||data.error?.code||'request_failed',Number(data.error?.retry_after_ms)||0);return data}
 export async function getView():Promise<View>{return decode(await fetch('/api/workspace/view',{credentials:'same-origin'}))}
 export async function getTemplates():Promise<TemplateCatalog>{return decode(await fetch('/api/templates'))}
 export async function mutate(path:string,data:RecordData,view:View,pending?:Pending){
@@ -32,5 +32,5 @@ export async function mutate(path:string,data:RecordData,view:View,pending?:Pend
  if(!validPending(request))throw new ApiError('操作暫存格式或大小不符，請核對工作區資料。',422,'pending_invalid');
  savePending(request);
  try {const result=await decode(await fetch(request.path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','x-csrf-token':view.csrf,'Idempotency-Key':request.key,'If-Match-Version':String(request.version)},body:request.body}));forgetPending();return result}
- catch(error){if(error instanceof ApiError && error.status<500)forgetPending();throw error}
+ catch(error){if(error instanceof ApiError && error.status<500 && (error.status!==429||error.code==='receipt_limit'))forgetPending();throw error}
 }
