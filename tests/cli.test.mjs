@@ -5,8 +5,8 @@ import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,existsSync,symlinkSync,
 import {resolve,join,isAbsolute} from 'node:path';
 import {templates} from '../src/templates.ts';
 const root=resolve('.'),cli=join(root,'bin/freedom-erp.mjs');
-mkdirSync('.audit-tmp/release-validation',{recursive:true});
-const temp=mkdtempSync(resolve('.audit-tmp/release-validation/cli-'));
+mkdirSync('.audit-tmp',{recursive:true});
+const temp=mkdtempSync(resolve('.audit-tmp/cli-'));
 function run(args,cwd=temp){return spawnSync(process.execPath,[cli,...args],{cwd,encoding:'utf8',timeout:10000,shell:false});}
 function create(directory,industry='retail',name='名稱 含有 空白',extra=[]){return run(['--industry',industry,'--name',name,'--directory',directory,'--dry-run',...extra]);}
 function json(result){assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout.trim());}

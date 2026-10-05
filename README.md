@@ -4,6 +4,8 @@
 
 **[直接開啟公開試用](https://freedom-erp-crm-demo.digimkt.workers.dev/)** · [部署與驗收](docs/verification.md)
 
+**[快速上手建置精靈](https://freedom-erp-crm-demo.digimkt.workers.dev/#build)**：選產業、取名稱與勾選功能，再直接試用或下載一鍵啟動包。Windows 解壓後雙擊 `start.cmd`；macOS／Linux 在解壓資料夾執行 `sh start.sh`。本機先安裝 Node.js 24 與 Git，首次啟動需要網路；不必手改設定，也不會覆寫原公開工作區。詳見[一鍵建置與接續使用](docs/quickstart.md)。
+
 建立工作區後，按「開始流程教學」。動態流程板會帶你實作商品銷售、服務交付或製造工單；支援原章節與答案接續、逐步讀值回看、本輪／工作區切換、精簡畫面及手機固定操作列。詳見[教學操作與限制](docs/learning.md)。
 
 日常工作台提供全站搜尋、清單篩選與分頁、待處理工作及操作條件提示；教學可直接定位到對應紀錄。任務與里程碑支援到期時間，詳見[日常操作](docs/workbench.md)。
@@ -27,6 +29,12 @@ npx --yes github:mars-tw/freedom-erp-crm --industry manufacturing --name '我的
 ```
 
 指令會建立獨立設定與 SQLite 儲存目錄，開啟本機 Worker。預設使用 `http://127.0.0.1:8788`；若埠已占用，請選 `--port` 及新的 `--directory`。關閉後用相同指令重啟，資料保留。第一次 GitHub 安裝會下載依賴並建置介面。
+
+建置精靈下載的設定檔可用同一指令啟動，連接埠自動選擇，第一次進入會帶入指定的公司與模組並開啟教學：
+
+```sh
+npx --yes github:mars-tw/freedom-erp-crm --config ./freedom-launch.json --open
+```
 
 ```sh
 npx --yes github:mars-tw/freedom-erp-crm --industry projects --name '專案工作室' --directory './my-projects' --port 8991

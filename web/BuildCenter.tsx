@@ -1,0 +1,70 @@
+/// <reference types="vite/client" />
+import React, {useEffect,useMemo,useRef,useState} from 'react';
+import catalog from '../templates/catalog.json';
+import {normalizeLaunchConfig,type LaunchConfig} from '../bin/launch-config.mjs';
+import schemaSource from '../bin/launch-config.mjs?raw';
+import {buildLaunchKit,launchConfigText,setupCommand} from './launch-kit';
+import {Icon,type IconName} from './icons';
+import type {Workspace} from './api';
+import './build-center.css';
+
+export type {LaunchConfig} from '../bin/launch-config.mjs';
+type Destination='public'|'local';
+type Draft={industry:string;company:string;modules:string[];destination:Destination};
+const moduleLabels:Record<string,string>={inventory:'商品庫存',sales:'模擬訂單',wallets:'測試幣流水',services:'報價與服務',crm:'客戶與商機',projects:'任務與里程碑',manufacturing:'BOM 與製造'};
+const moduleUses:Record<string,string>={inventory:'商品、庫存與進貨成本',sales:'接單、模擬付款與出貨',wallets:'SIM 錢包與每筆模擬流水',services:'報價、交付與驗收',crm:'客戶、商機與案件',projects:'待辦、到期日與里程碑',manufacturing:'BOM、備料與完工'};
+const industryIcons:Record<string,IconName>={retail:'sales',wholesale:'inventory',service:'services',restaurant:'manufacturing',manufacturing:'manufacturing',ecommerce:'sales',projects:'projects',general:'overview'};
+const draftKey='freedom-erp.builder.v1';
+const dependencies:Record<string,string[]>=catalog.moduleDependencies;
+const moduleOrder=Object.keys(moduleLabels);
+
+export function changeBuilderModules(current:string[],id:string,enabled:boolean):string[]{
+ const next=new Set(current);
+ if(enabled){const add=(key:string)=>{if(next.has(key))return;next.add(key);for(const dependency of dependencies[key]||[])add(dependency)};add(id)}
+ else{next.delete(id);let changed=true;while(changed){changed=false;for(const key of next)if((dependencies[key]||[]).some(dependency=>!next.has(dependency))){next.delete(key);changed=true}}}
+ return moduleOrder.filter(key=>next.has(key));
+}
+function initialDraft():Draft {
+ const base:Draft={industry:'retail',company:'我的測試系統',modules:[...catalog.templates[0].modules],destination:'public'};
+ try{const raw=JSON.parse(sessionStorage.getItem(draftKey)||'null');if(!raw||typeof raw!=='object'||!catalog.templates.some(template=>template.id===raw.industry)||typeof raw.company!=='string'||raw.company.length>100||!Array.isArray(raw.modules)||!raw.modules.every((key:unknown)=>typeof key==='string'&&moduleOrder.includes(key))||new Set(raw.modules).size!==raw.modules.length||!raw.modules.every((key:string)=>(dependencies[key]||[]).every(dependency=>raw.modules.includes(dependency))))return base;return {industry:raw.industry,company:raw.company,modules:raw.modules,destination:raw.destination==='local'?'local':'public'}}catch{return base}
+}
+function downloadFile(bytes:BlobPart,mime:string,filename:string){
+ const url=URL.createObjectURL(new Blob([bytes],{type:mime}));const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;document.body.appendChild(anchor);anchor.click();anchor.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function dependencyLabel(id:string){return (dependencies[id]||[]).map(key=>moduleLabels[key]).join('、')}
+
+export default function BuildCenter({workspace,expiresAt,retentionHours,busy,pending,onCreate,onOpenWorkspace}:{workspace:Workspace|null;expiresAt?:string|null;retentionHours?:number|null;busy:boolean;pending:boolean;onCreate:(config:LaunchConfig)=>Promise<boolean>;onOpenWorkspace:()=>void}){
+ const [draft,setDraft]=useState<Draft>(initialDraft),[step,setStep]=useState(1),[notice,setNotice]=useState(''),[localError,setLocalError]=useState(''),[creating,setCreating]=useState(false);
+ const submitting=useRef(false),heading=useRef<HTMLHeadingElement>(null),hasMoved=useRef(false);
+ const template=catalog.templates.find(item=>item.id===draft.industry)!;
+ const configResult=useMemo(()=>{try{return {config:normalizeLaunchConfig({format:'freedom-erp-launch-v1',industry:draft.industry,company_name:draft.company,modules:draft.modules,port:'auto',directory:'./freedom-data',auto_setup:true,simulation:true,real_finance:false},catalog) as LaunchConfig,error:''}}catch(error){return {config:null,error:(error as Error).message}}},[draft.industry,draft.company,draft.modules]);
+ const config=configResult.config,ready=!!config,locked=busy||pending||creating;
+ const command=config?setupCommand(config):'';
+ const configText=config?launchConfigText(config):'';
+ useEffect(()=>{try{sessionStorage.setItem(draftKey,JSON.stringify(draft))}catch{}},[draft]);
+ useEffect(()=>{if(hasMoved.current)heading.current?.focus();hasMoved.current=true},[step]);
+ function update(partial:Partial<Draft>){setDraft(current=>({...current,...partial}));setNotice('');setLocalError('')}
+ function selectIndustry(id:string){const selected=catalog.templates.find(item=>item.id===id)!;update({industry:id,modules:[...selected.modules]})}
+ function move(next:number){if(locked||next>1&&!template||next===3&&!ready)return;setStep(next);setNotice('');setLocalError('')}
+ function toggle(id:string,enabled:boolean){const next=changeBuilderModules(draft.modules,id,enabled);const changed=moduleOrder.filter(key=>key!==id&&draft.modules.includes(key)!==next.includes(key));update({modules:next});if(changed.length)setNotice(`${enabled?'一併啟用':'一併關閉'}：${changed.map(key=>moduleLabels[key]).join('、')}。`)}
+ async function create(){if(!config||locked||workspace||submitting.current)return;submitting.current=true;setCreating(true);setNotice('');setLocalError('');try{const created=await onCreate(config);if(!created)setLocalError('尚未完成建立，請查看上方操作訊息後再試。')}catch(error){setLocalError((error as Error).message)}finally{submitting.current=false;setCreating(false)}}
+ async function copyCommand(){try{await navigator.clipboard.writeText(command);setNotice('已複製啟動指令。')}catch{setLocalError('無法自動複製，請在指令欄位選取並複製文字。')}}
+ function download(kind:'kit'|'config'){if(!config)return;try{if(kind==='kit')downloadFile(buildLaunchKit(config,schemaSource).slice().buffer,'application/zip','freedom-launch-kit.zip');else downloadFile(configText,'application/json;charset=utf-8','freedom-launch.json');setNotice(kind==='kit'?'已下載一鍵建置包。解壓縮後開啟啟動檔，系統會檢查環境、下載公開專案並開啟教學。':'已下載設定檔。請放在要建立系統的資料夾，使用下方啟動指令。');setLocalError('')}catch(error){setLocalError((error as Error).message)}}
+ const stepTitles=['選產業範本','取名與調整功能','選擇開始方式'];
+ const publicRetention=expiresAt?`這個分頁的試用資料預計於 ${new Date(expiresAt).toLocaleString('zh-TW')} 清除；活動會延長期限。`:retentionHours?`試用資料在停止使用 ${retentionHours} 小時後清除。`:'目前為自架工作區，沒有自動清除期限。';
+
+ return <section className="build-center" data-testid="build-center" aria-label="快速上手建置系統">
+  <div className="build-intro"><div><span className="eyebrow">快速上手 · 自由 ERP CRM</span><h1>把你的工作流程，<br/>組成第一套系統。</h1><p>選範本、調整功能，再決定在哪裡開始。範例商品與 SIM 測試幣已準備好。</p></div><div className="build-mode-stamp"><span>流程練習</span><strong>SIM</strong><small>模擬商品 · 測試幣</small></div></div>
+  <nav className="build-stepper" aria-label="建置步驟"><ol>{stepTitles.map((title,index)=><li key={title} className={step===index+1?'is-current':step>index+1?'is-complete':''}><button type="button" data-testid={`build-step-${index+1}`} aria-current={step===index+1?'step':undefined} disabled={locked||index===2&&!ready} onClick={()=>move(index+1)}><span aria-hidden>{step>index+1?'✓':index+1}</span><strong>{title}</strong></button></li>)}</ol></nav>
+  <div className="build-layout"><div className="build-workbench">
+   <div className="build-section-heading"><span>步驟 {step}／3</span><h2 ref={heading} tabIndex={-1}>{stepTitles[step-1]}</h2><p>{step===1?'範本會帶入適合的功能與示範資料，之後還能調整。':step===2?'先選會用到的功能。需要相依模組時，系統會一起調整。':'公開試用可直接練習；下載建置包可在自己的電腦保存資料。'}</p></div>
+   {step===1&&<div className="build-template-grid" role="group" aria-label="產業範本">{catalog.templates.map(item=><button type="button" key={item.id} data-testid={`build-template-${item.id}`} className={draft.industry===item.id?'build-template is-selected':'build-template'} aria-pressed={draft.industry===item.id} disabled={locked} onClick={()=>selectIndustry(item.id)}><div><Icon name={industryIcons[item.id]}/><span className="build-template-check" aria-hidden>{draft.industry===item.id?'✓':'＋'}</span></div><strong>{item.name}</strong><small>{item.purpose}</small><span>{item.modules.length} 個預設模組</span></button>)}</div>}
+   {step===2&&<><label className="build-company">店名／工作室名稱<input data-testid="build-company" value={draft.company} maxLength={100} disabled={locked} required aria-describedby="build-company-note" onChange={event=>update({company:event.target.value})}/></label><p id="build-company-note" className="build-field-note">這個名稱會顯示在工作台；可使用中文與空白，最多 100 字。</p><fieldset className="build-modules"><legend>啟用功能</legend><p className="build-field-note" id="build-module-note">勾選流程會一併啟用必要模組；關閉必要模組，也會關閉使用它的流程。</p><div className="build-module-grid">{moduleOrder.map(id=><label key={id} className={draft.modules.includes(id)?'is-selected':''}><input type="checkbox" data-testid={`build-module-${id}`} checked={draft.modules.includes(id)} disabled={locked} aria-describedby="build-module-note" onChange={event=>toggle(id,event.target.checked)}/><span><strong>{moduleLabels[id]}</strong><small>{moduleUses[id]}</small>{dependencies[id]&&<em>需要：{dependencyLabel(id)}</em>}</span></label>)}</div></fieldset>{!ready&&<p className="build-validation" role="alert">{!draft.company.trim()?'請填入店名／工作室名稱。':!draft.modules.length?'請至少選擇一個功能模組。':configResult.error}</p>}</>}
+   {step===3&&<><fieldset className="build-destinations"><legend>在哪裡開始？</legend><label className={draft.destination==='public'?'is-selected':''}><input type="radio" name="build-destination" value="public" data-testid="build-destination-public" checked={draft.destination==='public'} disabled={locked} onChange={()=>update({destination:'public'})}/><span><strong>公開試用</strong><small>在這個分頁開始，不用安裝。每位訪客有獨立工作區。</small></span></label><label className={draft.destination==='local'?'is-selected':''}><input type="radio" name="build-destination" value="local" data-testid="build-destination-local" checked={draft.destination==='local'} disabled={locked} onChange={()=>update({destination:'local'})}/><span><strong>我的電腦</strong><small>下載建置包，啟動後自動開啟教學。模擬資料保存在自己的資料夾。</small></span></label></fieldset>
+    {draft.destination==='public'?<div className="build-start-panel"><h3>{workspace?'這個分頁已有工作區':'建立後，從教學開始'}</h3>{workspace?<div className="build-existing" data-testid="build-existing"><p><strong>{workspace.company_name}</strong>的模擬資料已保留。可以回到目前工作區繼續，或下載另一套本機建置包。</p><div className="build-inline-actions"><button type="button" className="primary" data-testid="build-existing-open" onClick={onOpenWorkspace}>回到目前工作區 <Icon name="arrow"/></button><button type="button" onClick={()=>update({destination:'local'})}>下載另一套本機系統</button></div></div>:<><p>建立「{draft.company.trim()}」，載入{template.name}的示範資料，接著開啟沉浸教學。你可以逐步操作並核對資料變化。</p><button type="button" className="primary build-create" data-testid="build-create" disabled={locked||!ready} onClick={()=>void create()}>{creating||busy?'建立中…':'建立並開始教學'}<Icon name="arrow"/></button></>}<p className="build-field-note">{publicRetention}</p>{pending&&<p className="build-validation">上次操作尚未確認。請使用上方「確認原操作結果」，確認後即可繼續。</p>}</div>:<div className="build-start-panel build-local"><h3>一份設定，隨時可以重啟</h3><ol><li><strong>準備 Node.js 24 以上與 Git</strong><p>電腦需要這兩個工具，以及首次下載套件時的網路連線。</p><div className="build-prerequisites"><a href="https://nodejs.org/en/download" target="_blank" rel="noreferrer">Node.js 官方下載 ↗</a><a href="https://git-scm.com/downloads" target="_blank" rel="noreferrer">Git 官方下載 ↗</a></div></li><li><strong>下載並解壓縮建置包</strong><p>設定與 Windows／macOS／Linux 啟動檔都在包裡。請放在自己的系統資料夾。</p></li><li><strong>開啟啟動檔，開始教學</strong><p>Windows 雙擊「start.cmd」；macOS／Linux 使用包內說明。會自動選擇可用連接埠，不覆寫既有工作區。</p></li></ol><div className="build-inline-actions"><button type="button" className="primary" data-testid="build-download-kit" disabled={!ready||creating} onClick={()=>download('kit')}>下載一鍵建置包 ZIP <Icon name="arrow"/></button><button type="button" data-testid="build-download-config" disabled={!ready||creating} onClick={()=>download('config')}>下載設定 JSON</button></div><p className="build-field-note">模擬資料存放於建置包旁的 freedom-data 資料夾，沒有自動清除期限。重啟原啟動檔即可接續；請定期匯出 JSON 備份。</p><details className="build-source"><summary>查看啟動指令與設定</summary><label>在建置包資料夾執行<input data-testid="build-command" value={command} readOnly onFocus={event=>event.target.select()}/></label><button type="button" data-testid="build-copy-command" onClick={()=>void copyCommand()}>複製啟動指令</button><pre aria-label="建置設定 JSON">{configText}</pre><p>程式碼採 MIT 授權，可從 <a href="https://github.com/mars-tw/freedom-erp-crm" target="_blank" rel="noreferrer">GitHub 專案</a>查看與修改。</p></details></div>}
+   </>}
+   {notice&&<div className="build-feedback" role="status">{notice}</div>}{localError&&<div className="build-validation" role="alert">{localError}</div>}
+   <div className="build-step-actions">{step>1?<button type="button" data-testid="build-back" disabled={locked} onClick={()=>move(step-1)}>上一步</button>:<span>八種範本，可依工作需求調整。</span>}{step<3&&<button type="button" className="primary" data-testid="build-next" disabled={locked||step===2&&!ready} onClick={()=>move(step+1)}>{step===1?'調整名稱與功能':'檢視建置計畫'}<Icon name="arrow"/></button>}</div>
+  </div><aside className="build-plan" data-testid="build-plan" aria-label="建置計畫"><div className="build-plan-header"><span>我的建置計畫</span><Icon name="settings"/></div><h3>{draft.company.trim()||'等你取個名字'}</h3><dl><div><dt>產業範本</dt><dd>{template.name}</dd></div><div><dt>開始方式</dt><dd>{draft.destination==='public'?'公開試用':'我的電腦'}</dd></div><div><dt>功能模組</dt><dd>{draft.modules.length} 個</dd></div></dl><ul className="build-plan-modules">{moduleOrder.filter(id=>draft.modules.includes(id)).map(id=><li key={id}><Icon name={id as IconName}/>{moduleLabels[id]}</li>)}</ul>{draft.destination==='local'&&<dl className="build-plan-local"><div><dt>連接埠</dt><dd>自動選擇可用連接埠</dd></div><div><dt>儲存位置</dt><dd><code>./freedom-data</code></dd></div><div><dt>開始教學</dt><dd>建置完成後自動開啟</dd></div></dl>}<div className="build-plan-footer"><span>SIM</span><p>只建立模擬商品與測試幣。<br/>沒有真銀行、支付、會計或發票連線。</p></div></aside></div>
+ </section>;
+}
