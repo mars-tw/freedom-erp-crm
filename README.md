@@ -14,6 +14,8 @@
 
 企業管理、排班、人資、薪資結構、模擬資金對帳、會計、稅務與發票已整理成[企業擴充設計](docs/enterprise/README.md)及[可點選功能藍圖](https://freedom-erp-crm-demo.digimkt.workers.dev/enterprise-plan.html)。新增十七個模組目前均為規劃，尚未加入資料引擎；藍圖提供規模切換、用途、操作流程與分期安排。
 
+**[行政工作台已可試用](https://freedom-erp-crm-demo.digimkt.workers.dev/#administration)**：新增第八個 `administration` 模組，可儲存組織、假員工、週班表、手動出勤、請假／請購／費用申請、設備借用與公告。一般企業 v2 預設加入，舊工作區可明確啟用而保留原資料；[操作方式與限制](docs/administration.md)。這是單訪客行政模擬，完整企業多人身份、正式人資、薪資及財務仍在規劃。
+
 所有商品與金額都是模擬資料，幣別固定 `SIM`。沒有銀行、支付商、正式會計、電子發票或物流連線。這是流程練習與可擴充的起點，不能直接當成正式營運 ERP 或產業合規系統。
 
 ## 一個指令建立

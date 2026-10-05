@@ -1,5 +1,5 @@
 export const moduleDependencies:Record<string,string[]>={sales:['inventory','wallets'],services:['crm','wallets'],manufacturing:['inventory','wallets']};
-export const modules=['inventory','sales','wallets','services','crm','projects','manufacturing'] as const;
+export const modules=['inventory','sales','wallets','services','crm','projects','manufacturing','administration'] as const;
 const profiles=[
  {id:'retail',name:'零售商店',purpose:'練習店內銷售、庫存預留與退貨',modules:['inventory','sales','wallets','crm'],terminology:{customer:'顧客',product:'零售商品',work_order:'製作單'},sample:{sku:'SHOP-MUG-001',product:'示範陶瓷杯',customer:'社區顧客林小姐',service:'商品客製服務',component:'杯體材料',price_minor:35000,cost_minor:16000}},
  {id:'wholesale',name:'批發商',purpose:'練習箱裝進貨、批發客戶與出貨追蹤',modules:['inventory','sales','wallets','crm'],terminology:{customer:'經銷客戶',product:'箱裝商品',work_order:'製作單'},sample:{sku:'WHOLE-BOX-001',product:'示範清潔用品箱（12瓶）',customer:'示範經銷商',service:'經銷合作',component:'示範包裝材料',price_minor:240000,cost_minor:150000}},
@@ -10,5 +10,5 @@ const profiles=[
  {id:'projects',name:'專案公司',purpose:'練習案件、待辦、里程碑與交付；不含工時薪資',modules:['services','wallets','crm','projects'],terminology:{customer:'專案客戶',product:'參考方案',work_order:'任務'},sample:{sku:'PROJECT-REF-001',product:'系統建置參考方案',customer:'企業專案委託方',service:'內部系統原型建置',component:'參考元件',price_minor:10000000,cost_minor:0,milestone:'原型驗收',task:'確認需求與交付範圍'}},
  {id:'general',name:'一般企業',purpose:'探索已實作模組，作為自訂範本起點',modules:[...modules],terminology:{customer:'客戶',product:'商品',work_order:'製作單'},sample:{sku:'DEMO-001',product:'示範成品',customer:'示範企業客戶',service:'示範顧問服務',component:'示範材料',price_minor:10000,cost_minor:5000}}
 ];
-export const templates=profiles.map(p=>({...p,version:1,module_dependencies:moduleDependencies,default_config:{currency:'SIM',simulation:true,real_finance:false}}));
+export const templates=profiles.map(p=>({...p,version:p.id==='general'?2:1,module_dependencies:moduleDependencies,default_config:{currency:'SIM',simulation:true,real_finance:false}}));
 export function getTemplate(id:string){return templates.find(t=>t.id===id);}

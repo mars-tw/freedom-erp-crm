@@ -1,5 +1,6 @@
 export type RecordData = Record<string, any>;
-export interface Workspace extends RecordData {version:number;company_name:string;industry:string;modules:string[];generation_id:string;products:RecordData[];wallets:RecordData[];orders:RecordData[];services:RecordData[];ledger:RecordData[];customers:RecordData[];contacts:RecordData[];deals:RecordData[];cases:RecordData[];quotes:RecordData[];tasks:RecordData[];milestones:RecordData[];boms:RecordData[];workOrders:RecordData[]}
+import type {Administration} from '../src/administration';
+export interface Workspace extends RecordData {administration?:Administration;version:number;company_name:string;industry:string;modules:string[];generation_id:string;products:RecordData[];wallets:RecordData[];orders:RecordData[];services:RecordData[];ledger:RecordData[];customers:RecordData[];contacts:RecordData[];deals:RecordData[];cases:RecordData[];quotes:RecordData[];tasks:RecordData[];milestones:RecordData[];boms:RecordData[];workOrders:RecordData[]}
 export interface Template {id:string;name:string;modules:string[];purpose:string;version:number;sample:RecordData;module_dependencies:Record<string,string[]>}
 export interface View {workspace:Workspace|null;csrf:string;version:number;report:RecordData|null;expires_at?:string|null;retention_hours?:number|null}
 export interface TemplateCatalog {items:Template[];defaults:{industry:string;company_name:string;modules?:string[];public_demo:boolean;retention_hours:number|null}}

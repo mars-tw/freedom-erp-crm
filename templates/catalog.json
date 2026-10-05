@@ -333,7 +333,8 @@
         "services",
         "crm",
         "projects",
-        "manufacturing"
+        "manufacturing",
+        "administration"
       ],
       "terminology": {
         "customer": "客戶",
@@ -349,7 +350,7 @@
         "price_minor": 10000,
         "cost_minor": 5000
       },
-      "version": 1,
+      "version": 2,
       "module_dependencies": {
         "sales": [
           "inventory",
