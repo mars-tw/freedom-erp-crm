@@ -4,7 +4,7 @@ test.use({timezoneId:'Asia/Taipei'});
 const nav=(page:Page)=>page.getByRole('navigation',{name:'工作模組',exact:true});
 async function view(page:Page){const r=await page.request.get('/api/workspace/view');expect(r.status()).toBe(200);return r.json();}
 async function setup(page:Page,industry='一般企業'){
- await page.goto('/');if(process.env.EXPECTED_PUBLIC_ASSET)await expect(page.locator('script[src]')).toHaveAttribute('src','/assets/'+process.env.EXPECTED_PUBLIC_ASSET);
+ await page.goto('/#custom');if(process.env.EXPECTED_PUBLIC_ASSET)await expect(page.locator('script[src]')).toHaveAttribute('src','/assets/'+process.env.EXPECTED_PUBLIC_ASSET);
  await page.getByLabel('店名／工作室名稱',{exact:true}).fill('合成：工作台驗證');await page.getByRole('button',{name:new RegExp('^'+industry)}).click();await page.getByRole('button',{name:'建立我的測試系統',exact:true}).click();await expect(page.getByRole('heading',{name:'合成：工作台驗證',exact:true})).toBeVisible();
 }
 // Real API fixtures supply list volume and unrelated domain states only. Search,

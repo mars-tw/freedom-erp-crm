@@ -151,8 +151,8 @@ async function main(){
   try{
    await waitReady(output.url,launch,exit);
    console.log(JSON.stringify({...output,ready:true,auto_setup:launch.auto_setup}));
-   console.log(`已就緒：${output.url}/#learning\n設定：${output.profile}\n資料：${output.storage}\n按 Ctrl+C 停止，重新執行相同指令即可繼續使用。`);
-   if(options.open){try{await openBrowser(output.url+'/#learning');}catch(e){console.error(`服務已就緒，瀏覽器未能自動開啟。請手動開啟 ${output.url}/#learning。${e.message}`);}}
+   console.log(`已就緒：${output.url}/\n設定：${output.profile}\n資料：${output.storage}\n按 Ctrl+C 停止，重新執行相同指令即可繼續使用。`);
+   if(options.open){try{await openBrowser(output.url+'/');}catch(e){console.error(`服務已就緒，瀏覽器未能自動開啟。請手動開啟 ${output.url}/。${e.message}`);}}
    const result=await exit;if(result.error)throw result.error;if(result.code!==0&&result.code!==null){process.exitCode=result.code;throw Error(`本機服務退出：${result.code}`);}
   }catch(e){if(child.exitCode===null&&child.signalCode===null){stop('SIGTERM');await exit;}throw e;}
   finally{process.removeListener('SIGINT',onInt);process.removeListener('SIGTERM',onTerm);}

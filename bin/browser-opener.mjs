@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 
 export function browserCommand(url,platform=process.platform,commandInterpreter=process.env.ComSpec??'cmd.exe'){
- const match=/^http:\/\/127\.0\.0\.1:(\d+)\/#learning$/.exec(url);
+ const match=/^http:\/\/127\.0\.0\.1:(\d+)\/(?:#learning)?$/.exec(url);
  if(!match||String(Number(match[1]))!==match[1]||Number(match[1])<1024||Number(match[1])>65535)throw Error('本機網址格式不符。');
  // The URL is generated from a validated numeric port. User text never enters cmd.
  if(platform==='win32')return {command:commandInterpreter,args:['/d','/s','/c',`start "" "${url}"`],options:{shell:false,windowsHide:true,windowsVerbatimArguments:true,stdio:'ignore'}};

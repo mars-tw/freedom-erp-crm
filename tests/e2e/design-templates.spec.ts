@@ -35,8 +35,9 @@ async function appearance(page:Page,theme:'light'|'dark',density:'comfortable'|'
  await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
  await expect(page.locator('html')).toHaveAttribute('data-density',density);
 }
+async function openOverviewMore(page:Page){const disclosure=page.locator('details.overview-more').filter({has:page.getByText('更多數據與流程教學',{exact:true})});if(!await disclosure.evaluate(element=>(element as HTMLDetailsElement).open))await disclosure.locator('summary').click();}
 async function setup(page:Page){
- await page.goto('/');
+ await page.goto('/#custom');
  if(process.env.EXPECTED_PUBLIC_ASSET)await expect(page.locator('script[src]')).toHaveAttribute('src','/assets/'+process.env.EXPECTED_PUBLIC_ASSET);
  await page.getByLabel('店名／工作室名稱',{exact:true}).fill('合成：八套外觀驗收');
  await page.getByRole('button',{name:/^一般企業/}).click();
@@ -113,7 +114,7 @@ test('the empty-workspace gallery lists eight identities and filters and literal
  await page.getByTestId('design-open-workspace').click();
  await expect(page.locator('html')).toHaveAttribute('data-design','atelier');
  await expect(page.getByTestId('design-preview-banner')).toBeVisible();
- await expect(page.getByRole('button',{name:'建立我的測試系統',exact:true})).toBeDisabled();
+ await expect(page.getByTestId('build-center')).toBeVisible();await expect(page.getByTestId('build-next')).toBeDisabled();
  await page.getByTestId('design-preview-cancel').click();
  await expect(page.locator('html')).toHaveAttribute('data-design','harbor');
  await expect(page.getByTestId('design-studio-open')).toBeFocused();
@@ -189,6 +190,18 @@ test('all eight desktop identities have distinct real palettes and layouts with 
    await appearance(page,theme);await nav(page).getByRole('button',{name:'工作總覽',exact:true}).click();
    await readable(page.locator('.page-heading h1'),undefined,problems,id+'/'+theme+'/workspace h1');
    await readable(page.locator('.page-heading p'),4.5,problems,id+'/'+theme+'/workspace p');
+   await readable(page.getByTestId('first-run-guide').locator('h2'),undefined,problems,id+'/'+theme+'/first guide h2');
+   await readable(page.getByTestId('first-run-guide').locator('.starter-guide-heading p'),4.5,problems,id+'/'+theme+'/first guide p');
+   await readable(page.getByTestId('role-center').locator('h2'),undefined,problems,id+'/'+theme+'/role h2');
+   await readable(page.getByTestId('role-center').locator('.role-center-heading p'),4.5,problems,id+'/'+theme+'/role p');
+   await readable(page.getByTestId('role-center').locator('.role-view-note'),4.5,problems,id+'/'+theme+'/role note');
+   const roleCards=page.getByTestId('role-center').locator('[data-testid^="role-card-"]');
+   for(let card=0;card<await roleCards.count();card++){
+    await readable(roleCards.nth(card).locator('.role-card-label'),4.5,problems,id+'/'+theme+'/role card '+card+' label');
+    await readable(roleCards.nth(card).locator('p'),4.5,problems,id+'/'+theme+'/role card '+card+' p');
+    await readable(roleCards.nth(card).locator('.role-card-open'),4.5,problems,id+'/'+theme+'/role card '+card+' action');
+   }
+   await openOverviewMore(page);
    await readable(page.locator('.learning-entry h2'),undefined,problems,id+'/'+theme+'/learning h2');
    await readable(page.locator('.learning-entry p'),4.5,problems,id+'/'+theme+'/learning p');
    await readable(page.getByTestId('design-studio-open'),4.5,problems,id+'/'+theme+'/design entry button');

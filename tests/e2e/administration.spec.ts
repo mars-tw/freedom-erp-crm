@@ -31,7 +31,7 @@ function dateAfter(day:string,days=1){
  return new Date(Date.parse(day+'T12:00:00.000Z')+days*86400000).toISOString().slice(0,10);
 }
 async function start(page:Page,industry='零售商店'){
- await page.goto('/');
+ await page.goto('/#custom');
  if(process.env.EXPECTED_PUBLIC_ASSET)await expect(page.locator('script[src]')).toHaveAttribute('src','/assets/'+process.env.EXPECTED_PUBLIC_ASSET);
  await page.getByLabel('店名／工作室名稱',{exact:true}).fill(company);
  await page.getByRole('button',{name:new RegExp('^'+industry)}).click();

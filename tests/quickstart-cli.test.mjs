@@ -102,3 +102,10 @@ test('browser opener passes cmd raw trusted URL, has bounded failure and leaves 
  assert.equal(browserCommand(url,'darwin').command,'open');assert.deepEqual(browserCommand(url,'linux').args,[url]);
  let starts=0;for(const bad of ['http://example.test:8789/#learning','http://127.0.0.1:8789/#learning&echo','http://127.0.0.1:65536/#learning','http://127.0.0.1:8789/#learning"','http://127.0.0.1:08789/#learning'])await assert.rejects(openBrowser(bad,{spawnProcess:()=>{starts++;return child();}}),/網址/);assert.equal(starts,0);
 });
+
+test('browser opener accepts the generated workbench root and rejects arbitrary navigation suffixes',()=>{
+ const url='http://127.0.0.1:8789/';
+ assert.deepEqual(browserCommand(url,'win32','cmd.exe').args,['/d','/s','/c','start "" "'+url+'"']);
+ assert.deepEqual(browserCommand(url,'linux').args,[url]);
+ for(const value of ['http://127.0.0.1:8789/?next=evil','http://127.0.0.1:8789/#other','http://127.0.0.1:8789/;echo','http://127.0.0.1:8789/\\evil','http://127.0.0.1:8789','http://example.test:8789/'])assert.throws(()=>browserCommand(value),/網址/);
+});

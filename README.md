@@ -4,9 +4,13 @@
 
 **[直接開啟公開試用](https://freedom-erp-crm-demo.digimkt.workers.dev/)** · [部署與驗收](docs/verification.md)
 
-**[快速上手建置精靈](https://freedom-erp-crm-demo.digimkt.workers.dev/#build)**：選產業、取名稱與勾選功能，再直接試用或下載一鍵啟動包。Windows 解壓後雙擊 `start.cmd`；macOS／Linux 在解壓資料夾執行 `sh start.sh`。本機先安裝 Node.js 24 與 Git，首次啟動需要網路；不必手改設定，也不會覆寫原公開工作區。詳見[一鍵建置與接續使用](docs/quickstart.md)。
+**[新手引導建置](https://freedom-erp-crm-demo.digimkt.workers.dev/#build)**：新訪客進站就會看到三步建置。填店名與行業，確認已選好的常用功能，再按「建立我的系統」；完成後直接進入自己的工作台。也可下載一鍵啟動包。Windows 解壓後雙擊 `start.cmd`；macOS／Linux 在解壓資料夾執行 `sh start.sh`。本機先安裝 Node.js 24 與 Git，首次啟動需要網路；不必手改設定，也不會覆寫原公開工作區。詳見[一鍵建置與接續使用](docs/quickstart.md)。
 
-建立工作區後，按「開始流程教學」。動態流程板會帶你實作商品銷售、服務交付或製造工單；支援原章節與答案接續、逐步讀值回看、本輪／工作區切換、精簡畫面及手機固定操作列。詳見[教學操作與限制](docs/learning.md)。
+工作台提供「查看我的商品／服務」、「帶我做一次」與備份入口，可直接操作；進度依真實模擬紀錄更新。需要完整練習時，再選「帶我做一次」或「沉浸教學」。動態流程板會帶你實作商品銷售、服務交付或製造工單；支援原章節與答案接續、逐步讀值回看、本輪／工作區切換、精簡畫面及手機固定操作列。詳見[教學操作與限制](docs/learning.md)。
+
+**[功能地圖](https://freedom-erp-crm-demo.digimkt.workers.dev/#capabilities)**：對照 Business Central／NAV、NetSuite 與 Odoo 19，整理 34 個主要工作領域，分別顯示已可用（SIM）、部分可用與待建置。每張卡列出可做的事、缺口與所需模組；可用子流程直達操作畫面，待建能力只連建置藍圖。官方來源、完整差距與後續驗收見[ERP 能力對照](docs/erp-reference-map.md)。這是原創實作與公開功能研究，沒有移入三家產品的程式或連接它們的帳號。
+
+工作總覽新增店長／負責人、業務與服務、庫存與製造、行政與排班四種工作視角。待辦筆數取自目前資料，可直接定位到相關紀錄；流程入口按工作順序排列。視角只是瀏覽器偏好，沒有新增多人登入或權限。
 
 日常工作台提供全站搜尋、清單篩選與分頁、待處理工作及操作條件提示；教學可直接定位到對應紀錄。任務與里程碑支援到期時間，詳見[日常操作](docs/workbench.md)。
 
@@ -34,7 +38,7 @@ npx --yes github:mars-tw/freedom-erp-crm --industry manufacturing --name '我的
 
 指令會建立獨立設定與 SQLite 儲存目錄，開啟本機 Worker。預設使用 `http://127.0.0.1:8788`；若埠已占用，請選 `--port` 及新的 `--directory`。關閉後用相同指令重啟，資料保留。第一次 GitHub 安裝會下載依賴並建置介面。
 
-建置精靈下載的設定檔可用同一指令啟動，連接埠自動選擇，第一次進入會帶入指定的公司與模組並開啟教學：
+建置精靈下載的設定檔可用同一指令啟動，連接埠自動選擇，第一次進入會帶入指定的公司與模組並開啟工作台：
 
 ```sh
 npx --yes github:mars-tw/freedom-erp-crm --config ./freedom-launch.json --open
