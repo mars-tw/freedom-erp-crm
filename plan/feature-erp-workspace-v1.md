@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-10-06
 last_updated: 2026-10-06
 owner: mars-tw
-status: In progress
+status: Completed
 tags: [feature, erp, ux, research]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In%20progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 使用者指定 Dynamics 365 Business Central／NAV、Oracle NetSuite 與 Odoo 19。研究主要功能領域後，整合角色工作重點、實際資料入口與可搜尋的模組能力；其餘企業能力列出實作依賴與驗收，不能冒稱完整複製三套 ERP。
 
@@ -33,10 +33,10 @@ tags: [feature, erp, ux, research]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | docs/erp-reference-map.md 列 CAP01–CAP34、官方來源、現況、UX 選擇與後續驗收。 | | |
-| TASK-002 | web/role-center.ts 計算四視角真實狀態、enabled 模組、最多四卡與世代隔離偏好；RoleCenter.tsx 及 CSS 顯示及導航。 | | |
-| TASK-003 | web/capabilities.ts 固定可用／部分／待建範圍、字面搜尋與子流程依賴；CapabilityMap.tsx 及 CSS 顯示搜尋與實作入口。依賴 TASK-001。 | | |
-| TASK-004 | web/main.tsx 工作總覽整合 RoleCenter，#capabilities 支援新訪客、導覽與返回原工作區。依賴 TASK-002、TASK-003。 | | |
+| TASK-001 | docs/erp-reference-map.md 列 CAP01–CAP34、官方來源、現況、UX 選擇與後續驗收。 | ✅ | 2026-10-06 |
+| TASK-002 | web/role-center.ts 計算四視角真實狀態、enabled 模組、最多四卡與世代隔離偏好；RoleCenter.tsx 及 CSS 顯示及導航。 | ✅ | 2026-10-06 |
+| TASK-003 | web/capabilities.ts 固定可用／部分／待建範圍、字面搜尋與子流程依賴；CapabilityMap.tsx 及 CSS 顯示搜尋與實作入口。依賴 TASK-001。 | ✅ | 2026-10-06 |
+| TASK-004 | web/main.tsx 工作總覽整合 RoleCenter，#capabilities 支援新訪客、導覽與返回原工作區。依賴 TASK-002、TASK-003。 | ✅ | 2026-10-06 |
 
 ### Implementation Phase 2
 
@@ -44,8 +44,8 @@ tags: [feature, erp, ux, research]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-005 | tests/role-center.test.ts、tests/capabilities.test.ts 及 tests/e2e/role-capabilities.spec.ts 驗證真實計數、有效定位、偏好、資料不變與篩選；覆核 CAP06／CAP16 alternatives。 | | |
-| TASK-006 | 完整程式／瀏覽器、資料保存、Worker 綁定、公開資產、私人檔案與 MIT／NOTICE 檢查；更新手冊後推送個人專案及 SIM 試用站。依賴 TASK-004、TASK-005。 | | |
+| TASK-005 | tests/role-center.test.ts、tests/capabilities.test.ts 及 tests/e2e/role-capabilities.spec.ts 驗證真實計數、有效定位、偏好、資料不變與篩選；覆核 CAP06／CAP16 alternatives。 | ✅ | 2026-10-06 |
+| TASK-006 | 完整程式／瀏覽器、資料保存、Worker 綁定、公開資產、私人檔案與 MIT／NOTICE 檢查；更新手冊後推送個人專案及 SIM 試用站。依賴 TASK-004、TASK-005。 | ✅ | 2026-10-06 |
 
 ## 3. Alternatives
 

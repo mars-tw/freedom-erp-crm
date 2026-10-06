@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-10-06
 last_updated: 2026-10-06
 owner: mars-tw
-status: In progress
+status: Completed
 tags: [feature, onboarding, frontend]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In%20progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 新手進入公開開源試用站後，直接填寫店名、選行業、確認推薦功能並建立系統。建置成功進入自己的工作台，由可收起的引導提供下一個操作入口。
 
@@ -34,9 +34,9 @@ tags: [feature, onboarding, frontend]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | web/BuildCenter.tsx 的三步內容重排；API 本機 defaults 與來源隔離草稿；保留檢查與下載。 | | |
-| TASK-002 | web/main.tsx 根網址依 workspace 導向；保留 #custom 舊表單、#design、既有 #learning；setup／retry 成功開 overview。 | | |
-| TASK-003 | bin/freedom-erp.mjs 及 bin/browser-opener.mjs 開啟已就緒的本機根網址，保留原 #learning 的嚴格安全白名單。 | | |
+| TASK-001 | web/BuildCenter.tsx 的三步內容重排；API 本機 defaults 與來源隔離草稿；保留檢查與下載。 | ✅ | 2026-10-06 |
+| TASK-002 | web/main.tsx 根網址依 workspace 導向；保留 #custom 舊表單、#design、既有 #learning；setup／retry 成功開 overview。 | ✅ | 2026-10-06 |
+| TASK-003 | bin/freedom-erp.mjs 及 bin/browser-opener.mjs 開啟已就緒的本機根網址，保留原 #learning 的嚴格安全白名單。 | ✅ | 2026-10-06 |
 
 ### Implementation Phase 2
 
@@ -44,9 +44,9 @@ tags: [feature, onboarding, frontend]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-004 | web/FirstRunGuide.tsx、web/start-guide.ts 與 CSS 提供實際進度、依模組入口、備份、世代隔離收起與儲存拒絕備援。依賴 TASK-002。 | | |
-| TASK-005 | tests/start-guide.test.ts 及 tests/e2e/guided-start.spec.ts 驗證新手、重讀、原 key 恢復、資料不覆寫、無自動交易與手機；適配既有 e2e。 | | |
-| TASK-006 | 完成型別、程式、建置、dry-run、完整本機／公開瀏覽器及發布內容檢查；更新手冊與驗收；推送個人 GitHub 並部署既有 SIM 站。依賴 TASK-001 至 TASK-005。 | | |
+| TASK-004 | web/FirstRunGuide.tsx、web/start-guide.ts 與 CSS 提供實際進度、依模組入口、備份、世代隔離收起與儲存拒絕備援。依賴 TASK-002。 | ✅ | 2026-10-06 |
+| TASK-005 | tests/start-guide.test.ts 及 tests/e2e/guided-start.spec.ts 驗證新手、重讀、原 key 恢復、資料不覆寫、無自動交易與手機；適配既有 e2e。 | ✅ | 2026-10-06 |
+| TASK-006 | 完成型別、程式、建置、dry-run、完整本機／公開瀏覽器及發布內容檢查；更新手冊與驗收；推送個人 GitHub 並部署既有 SIM 站。依賴 TASK-001 至 TASK-005。 | ✅ | 2026-10-06 |
 
 ## 3. Alternatives
 
