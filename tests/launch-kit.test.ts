@@ -13,7 +13,8 @@ mkdirSync('.audit-tmp/launch-kit-tests',{recursive:true});const temp=mkdtempSync
 test('generated ZIP is accepted by an independent archive reader with exact UTF-8 plan and executable shell mode',()=>{
  const path=join(temp,'kit.zip');writeFileSync(path,buildLaunchKit(config,schema));
  const code="import zipfile,json,sys; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; print(json.dumps({'files':z.namelist(),'config':json.loads(z.read('freedom-launch.json')),'shell_mode':z.getinfo('start.sh').external_attr>>16}))";
- const result=spawnSync('python',['-c',code,path],{encoding:'utf8',shell:false,timeout:10000});assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);assert.equal(data.files.length,7);assert.deepEqual(data.config,config);assert.equal(data.shell_mode,0o100755);assert.ok(data.files.every((name:string)=>!name.includes('..')&&!name.includes('/')&&!name.includes('\\')));
+ const python=['python3','python'].find(candidate=>spawnSync(candidate,['--version'],{encoding:'utf8',shell:false,timeout:10000}).status===0);assert.ok(python,'需要 Python 3 才能驗證 ZIP。');
+ const result=spawnSync(python,['-c',code,path],{encoding:'utf8',shell:false,timeout:10000});assert.equal(result.status,0,result.stderr||'ZIP archive reader failed');const data=JSON.parse(result.stdout);assert.equal(data.files.length,7);assert.deepEqual(data.config,config);assert.equal(data.shell_mode,0o100755);assert.ok(data.files.every((name:string)=>!name.includes('..')&&!name.includes('/')&&!name.includes('\\')));
 });
 test('names remain JSON data and never enter shell code or execution arguments',()=>{
  const files=launchKitFiles(config,schema);for(const name of ['start.cmd','start.sh','launch.mjs','launch-schema.mjs'])assert.equal(files[name].includes(config.company_name),false);

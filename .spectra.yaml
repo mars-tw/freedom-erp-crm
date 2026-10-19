@@ -1,0 +1,19 @@
+# Spectra application config
+# See: https://github.com/kaochenlong/spectra-app
+
+# Spec directory path (relative to project root)
+# Changing this requires rebuilding the vector search index.
+# New projects initialize at docs/spectra; configurations without this field resolve to openspec.
+spec_dir: docs/spectra
+
+# Language for AI-generated artifacts
+# locale: tw
+
+# Workflow toggles
+# tdd: true
+# audit: true
+
+# AI tools to generate instruction files for
+# tools:
+#   - claude
+#   - cursor
